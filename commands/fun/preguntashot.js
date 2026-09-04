@@ -14,6 +14,8 @@ import {
     iniciarPreguntaHot
 } from '../../lib/preguntashot.js';
 
+import { resolverJidReal } from '../../lib/resolverJid.js';
+
 export default {
     nombre: 'preguntashot',
 
@@ -61,7 +63,9 @@ export default {
                 ?.mentionedJid?.[0];
 
         const objetivo =
-            mencionado || remitente;
+            mencionado
+                ? await resolverJidReal(sock, chatJid, mencionado)
+                : remitente;
 
         await iniciarPreguntaHot(sock, chatJid, msg, objetivo);
     }
