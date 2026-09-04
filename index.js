@@ -1,4 +1,4 @@
-/ ============================================================
+// ============================================================
 // BOT-API
 // Conexión por código de emparejamiento o QR
 // Sistema de bienvenida + despedida con foto de perfil
@@ -47,13 +47,14 @@ let comandos = null;
 const app = Fastify({ logger: false });
 
 // En Render usamos un solo Web Service.
-// La página principal abre directamente el panel de subbots.
-app.get('/', async (req, reply) => {
-    return reply.type('text/html').send(`<!doctype html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="0;url=/subbot"><title>Subbots</title></head><body style="background:#0b0b12;color:#fff;font-family:Arial;text-align:center;padding:40px">Cargando panel de subbots...</body></html>`);
-});
-
 // Panel web de subbots dentro del MISMO servidor/puerto de Render.
 registrarRutasSubbot(app);
+
+// La página principal abre directamente el panel de subbots.
+// La ruta /subbot es la que sirve el HTML real.
+app.get('/', async (req, reply) => {
+    return reply.redirect('/subbot');
+});
 
 app.get('/qr', async (req, reply) => {
     if (!ultimoQR) {
