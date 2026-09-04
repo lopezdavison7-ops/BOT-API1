@@ -4,12 +4,12 @@ import axios from 'axios';
 import config from '../../config.js';
 
 const API_URL =
-    'https://apiyosoyyo-ofc.onrender.com/api/ssweb';
+    'https://api-yosoyyo-api-ofc.onrender.com/api/ssweb';
 
 export default {
     nombre: 'ss',
 
-    categoria: 'Descargas',
+    categoria: 'utilidades',
 
     alias: [
         'screenshot',
