@@ -2,7 +2,7 @@
 
 export default {
     nombre: 'tiktok',
-    categoria: 'Descargas',
+    categoria: 'descargas',
     alias: ['tt'],
     descripcion: 'Descarga videos de TikTok sin marca de agua',
 
