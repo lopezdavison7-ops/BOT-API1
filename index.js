@@ -1,4 +1,4 @@
-// ============================================================
+/ ============================================================
 // BOT-API
 // Conexión por código de emparejamiento o QR
 // Sistema de bienvenida + despedida con foto de perfil
@@ -18,6 +18,8 @@ import readline from 'readline';
 import { handleMessage } from './handler.js';
 import { loadCommands } from './controllers/cmdManager.js';
 import { manejarDespedida } from './commands/group/despedida.js';
+import { registrarRutasSubbot } from './lib/subbotWeb.js';
+import { inicializarGestorSubbots, reconectarSubbotsGuardados } from './lib/subbotManager.js';
 
 const baileys = baileysNS.default ?? baileysNS;
 const makeWASocket = typeof baileys === 'function' ? baileys : baileys.makeWASocket;
@@ -44,7 +46,14 @@ let comandos = null;
 
 const app = Fastify({ logger: false });
 
-app.get('/', async () => ({ status: 'online', bot: 'BOT-API' }));
+// En Render usamos un solo Web Service.
+// La página principal abre directamente el panel de subbots.
+app.get('/', async (req, reply) => {
+    return reply.type('text/html').send(`<!doctype html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="0;url=/subbot"><title>Subbots</title></head><body style="background:#0b0b12;color:#fff;font-family:Arial;text-align:center;padding:40px">Cargando panel de subbots...</body></html>`);
+});
+
+// Panel web de subbots dentro del MISMO servidor/puerto de Render.
+registrarRutasSubbot(app);
 
 app.get('/qr', async (req, reply) => {
     if (!ultimoQR) {
@@ -178,6 +187,17 @@ async function iniciarBot() {
 
         comandos = await loadCommands();
         console.log(`📦 Comandos cargados: ${comandos.size}`);
+
+        // Los subbots reutilizan el mismo Map de comandos del bot principal.
+        // Esto permite que /subbot funcione aunque Render solo ejecute
+        // `npm start` (index.js) y no un segundo proceso.
+        inicializarGestorSubbots(() => comandos);
+
+        // Recuperar sesiones de subbots que ya estaban guardadas.
+        // Se ejecuta en segundo plano para no bloquear el arranque principal.
+        reconectarSubbotsGuardados().catch(error => {
+            console.error('[SUBBOT] ❌ Error reconectando sesiones:', error?.message || error);
+        });
 
         const logger = pino({ level: 'debug' });
         const opciones = {
