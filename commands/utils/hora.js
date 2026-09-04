@@ -2,7 +2,7 @@
 export default {
     nombre: 'hora',
     categoria: 'Utilidades',
-    alias: ['tiempo', 'reloj'],
+    alias: ['tiempo'],
     descripcion: 'Muestra la hora actual en diferentes países',
     ejecutar: async ({ msg, responder, argumento, sock }) => {
         try {
