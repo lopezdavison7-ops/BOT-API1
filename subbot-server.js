@@ -50,7 +50,7 @@ async function iniciar() {
 
     const app = Fastify({ logger: false });
 
-    app.get('/', async () => ({ status: 'online', servicio: 'subbots' }));
+    app.get('/', async (req, reply) => reply.type('text/html').send(`<!doctype html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="0;url=/subbot"><title>Subbots</title></head><body style="background:#0b0b12;color:#fff;font-family:Arial;text-align:center;padding:40px">Cargando panel de subbots...</body></html>`));
 
     registrarRutasSubbot(app);
 
