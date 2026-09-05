@@ -12,6 +12,7 @@
 // ============================================================
 
 import { esOwner } from '../../lib/owner.js';
+import { obtenerMetadata, esParticipanteAdmin } from '../../lib/grupos.js';
 import {
     activarBot,
     desactivarBot,
@@ -25,11 +26,36 @@ export default {
     owner: true,
     descripcion: 'Enciende o apaga los comandos del bot en este chat.',
 
-    async ejecutar({ jid, msg, args, responder }) {
-        if (!esOwner(msg)) {
+    async ejecutar({ sock, jid, msg, args, responder, isGroup }) {
+        // El Owner puede usarlo en cualquier chat.
+        let tienePermiso = esOwner(msg);
+
+        // En grupos también se permite a los administradores.
+        if (!tienePermiso && isGroup) {
+            try {
+                const metadata = await obtenerMetadata(sock, jid);
+                const remitente =
+                    msg?.key?.participant ||
+                    msg?.key?.senderPn ||
+                    msg?.key?.participantAlt ||
+                    msg?.key?.remoteJid;
+
+                tienePermiso = esParticipanteAdmin(
+                    metadata,
+                    remitente
+                );
+            } catch (error) {
+                console.error(
+                    '[BOT] Error comprobando administrador:',
+                    error?.message || error
+                );
+            }
+        }
+
+        if (!tienePermiso) {
             return responder.texto(
                 '🔐 *ACCESO DENEGADO*\n\n' +
-                'Solo el Owner puede usar este comando.'
+                'Solo el *Owner* o un *Administrador del grupo* puede usar este comando.'
             );
         }
 
