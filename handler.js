@@ -1,11 +1,6 @@
-// ============================================================
-// BOT-API
-// HANDLER PRINCIPAL
-// ============================================================
-
+// handler.js
 import { loadCommands } from './controllers/cmdManager.js';
-import { revisarAntilink } from './lib/antilink.js';
-import { verificarPermisosAdmin } from './lib/grupos.js';
+import { procesarMinijuegos } from './lib/minijuegos.js';
 import { botEstaActivo } from './lib/botEstado.js';
 
 const PREFIJO = '.';
@@ -13,203 +8,70 @@ const PREFIJO = '.';
 let comandos = null;
 let botJid = null;
 
-// ============================================================
-// CARGAR COMANDOS
-// ============================================================
-
 export async function cargarComandosHandler() {
-
     if (!comandos) {
-
         comandos = await loadCommands();
-
-        console.log(
-            `[HANDLER] ✅ Comandos cargados: ${comandos.size}`
-        );
+        console.log(`[HANDLER] ✅ Comandos cargados: ${comandos.size}`);
     }
 
     return comandos;
 }
 
-// ============================================================
-// MANEJAR MENSAJES
-// ============================================================
-
-export async function handleMessage(
-    sock,
-    msg,
-    prefijo = PREFIJO,
-    listaComandos = []
-) {
-
+export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []) {
     try {
-
-        // ========================================================
-        // CARGAR COMANDOS
-        // ========================================================
-
         if (!comandos) {
             comandos = await loadCommands();
         }
 
-        // ========================================================
-        // JID DEL BOT
-        // ========================================================
-
-        if (!botJid && sock?.user?.id) {
+        if (!botJid) {
             botJid = sock.user.id;
         }
 
-        // ========================================================
-        // VALIDACIONES
-        // ========================================================
+        if (!msg.message) return;
+        if (msg.key.remoteJid === 'status@broadcast') return;
 
-        if (!msg?.message) return;
+        const jid = msg.key.remoteJid;
+        const fromMe = msg.key.fromMe;
+        const isGroup = jid?.endsWith('@g.us');
 
-        if (
-            msg?.key?.remoteJid ===
-            'status@broadcast'
-        ) {
-            return;
-        }
-
-        const jid =
-            msg?.key?.remoteJid;
-
-        if (!jid) return;
-
-        const fromMe =
-            Boolean(msg?.key?.fromMe);
-
-        const isGroup =
-            jid.endsWith('@g.us');
-
-        // ========================================================
-        // ANTILINK
-        // SOLO ENLACES DE WHATSAPP
-        // ========================================================
-
-        if (isGroup && !fromMe) {
-
-            let esAdmin = false;
-
-            try {
-
-                const permiso =
-                    await verificarPermisosAdmin(
-                        sock,
-                        msg,
-                        jid
-                    );
-
-                esAdmin =
-                    Boolean(permiso?.ok);
-
-            } catch (error) {
-
-                console.error(
-                    '[ANTILINK] Error comprobando admin:',
-                    error?.message || error
-                );
-            }
-
-            const bloqueado =
-                await revisarAntilink(
-                    sock,
-                    msg,
-                    esAdmin
-                );
-
-            if (bloqueado) {
-                return;
-            }
-        }
-
-        // ========================================================
-        // EXTRAER TEXTO
-        // ========================================================
-
+        // ============================================
+        // SACAR TEXTO
+        // ============================================
         let texto = '';
 
-        // Mensaje normal
-        if (
-            msg.message?.conversation
-        ) {
-
-            texto =
-                msg.message.conversation;
+        if (msg.message?.conversation) {
+            texto = msg.message.conversation;
         }
-
-        // Texto citado / extendido
-        else if (
-            msg.message?.extendedTextMessage?.text
-        ) {
-
-            texto =
-                msg.message.extendedTextMessage.text;
+        else if (msg.message?.extendedTextMessage?.text) {
+            texto = msg.message.extendedTextMessage.text;
         }
-
-        // Imagen con caption
-        else if (
-            msg.message?.imageMessage?.caption
-        ) {
-
-            texto =
-                msg.message.imageMessage.caption;
+        else if (msg.message?.imageMessage?.caption) {
+            texto = msg.message.imageMessage.caption;
         }
-
-        // Video con caption
-        else if (
-            msg.message?.videoMessage?.caption
-        ) {
-
-            texto =
-                msg.message.videoMessage.caption;
+        else if (msg.message?.videoMessage?.caption) {
+            texto = msg.message.videoMessage.caption;
         }
-
-        // ========================================================
-        // BOTONES INTERACTIVOS
-        // ========================================================
-
         else if (
-            msg.message
-                ?.interactiveResponseMessage
+            msg.message?.interactiveResponseMessage
                 ?.nativeFlowResponseMessage
                 ?.paramsJson
         ) {
-
             try {
+                const json = JSON.parse(
+                    msg.message
+                        .interactiveResponseMessage
+                        .nativeFlowResponseMessage
+                        .paramsJson
+                );
 
-                const json =
-                    JSON.parse(
-                        msg.message
-                            .interactiveResponseMessage
-                            .nativeFlowResponseMessage
-                            .paramsJson
-                    );
-
-                texto =
-                    json.id ||
-                    json.selectedId ||
-                    '';
-
-            } catch {
-
-                texto = '';
-            }
+                texto = json.id || '';
+            } catch {}
         }
-
-        // ========================================================
-        // LISTAS ANTIGUAS
-        // ========================================================
-
         else if (
-            msg.message
-                ?.listResponseMessage
+            msg.message?.listResponseMessage
                 ?.singleSelectReply
                 ?.selectedRowId
         ) {
-
             texto =
                 msg.message
                     .listResponseMessage
@@ -217,289 +79,171 @@ export async function handleMessage(
                     .selectedRowId;
         }
 
-        // ========================================================
-        // SIN TEXTO
-        // ========================================================
+        if (!texto) return;
 
-        if (!texto) {
-            return;
-        }
+        // ============================================
+        // MENÚ POR NÚMERO
+        // ============================================
+        if (/^\d+$/.test(texto.trim())) {
+            const num = parseInt(texto.trim(), 10);
+            const mapa = global.menuMap?.[jid];
 
-        texto =
-            String(texto).trim();
-
-        // ========================================================
-        // COMPROBAR PREFIJO
-        // ========================================================
-
-        if (
-            !texto.startsWith(prefijo)
-        ) {
-            return;
-        }
-
-        // ========================================================
-        // MAPA NUMÉRICO DEL MENÚ
-        // ========================================================
-
-        if (
-            /^\d+$/.test(texto)
-        ) {
-
-            const num =
-                parseInt(
-                    texto,
-                    10
-                );
-
-            const mapa =
-                global.menuMap?.[jid];
-
-            if (
-                mapa &&
-                mapa[num]
-            ) {
-
-                const categoria =
-                    mapa[num];
-
-                texto =
-                    `${prefijo}menu ${categoria}`;
+            if (mapa && mapa[num]) {
+                texto = `${prefijo}menu ${mapa[num]}`;
             }
         }
 
-        // ========================================================
+        // ============================================
+        // SOLO COMANDOS CON PREFIJO
+        // ============================================
+        if (!texto.startsWith(prefijo)) return;
+
+        // ============================================
         // SEPARAR COMANDO Y ARGUMENTOS
-        // ========================================================
+        // ============================================
+        const sinPrefijo = texto.slice(prefijo.length).trim();
 
-        const sinPrefijo =
-            texto
-                .slice(prefijo.length)
-                .trim();
+        if (!sinPrefijo) return;
 
-        if (!sinPrefijo) {
-            return;
-        }
+        const indiceEspacio = sinPrefijo.search(/\s/);
 
-        const indiceEspacio =
-            sinPrefijo.search(/\s/);
-
-        const nombreComando =
-            (
-                indiceEspacio === -1
-                    ? sinPrefijo
-                    : sinPrefijo.slice(
-                        0,
-                        indiceEspacio
-                    )
-            ).toLowerCase();
+        const nombreComando = (
+            indiceEspacio === -1
+                ? sinPrefijo
+                : sinPrefijo.slice(0, indiceEspacio)
+        ).toLowerCase();
 
         const argumento =
             indiceEspacio === -1
                 ? ''
-                : sinPrefijo
-                    .slice(
-                        indiceEspacio + 1
-                    )
-                    .trim();
+                : sinPrefijo.slice(indiceEspacio + 1).trim();
 
-        const args =
-            argumento
-                ? argumento.split(/\s+/)
-                : [];
+        const args = argumento
+            ? argumento.split(/\s+/).filter(Boolean)
+            : [];
 
-        // ========================================================
-        // .MENU 1
-        // ========================================================
-
+        // ============================================
+        // .menu 1 / .menu 2 / ETC.
+        // ============================================
         if (
             nombreComando === 'menu' &&
             args[0] &&
             !isNaN(args[0])
         ) {
+            const num = parseInt(args[0], 10);
+            const mapa = global.menuMap?.[jid];
 
-            const num =
-                parseInt(
-                    args[0],
-                    10
-                );
-
-            const mapa =
-                global.menuMap?.[jid];
-
-            if (
-                mapa &&
-                mapa[num]
-            ) {
-
-                args[0] =
-                    mapa[num];
+            if (mapa && mapa[num]) {
+                args[0] = mapa[num];
             }
         }
 
-        // ========================================================
+        // ============================================
         // BUSCAR COMANDO
-        // ========================================================
+        // ============================================
+        let cmd = comandos.get(nombreComando);
 
-        let cmd =
-            comandos.get(
-                nombreComando
+        if (!cmd) {
+            cmd = [...comandos.values()].find(
+                c =>
+                    Array.isArray(c.alias) &&
+                    c.alias.includes(nombreComando)
             );
-
-        // ========================================================
-        // BUSCAR ALIAS
-        // ========================================================
-
-        if (!cmd) {
-
-            cmd =
-                [...comandos.values()]
-                    .find(
-                        c =>
-                            Array.isArray(c.alias) &&
-                            c.alias.some(
-                                alias =>
-                                    String(alias)
-                                        .toLowerCase() ===
-                                    nombreComando
-                            )
-                    );
         }
 
-        // ========================================================
-        // COMANDO NO EXISTE
-        // ========================================================
+        if (!cmd) return;
 
-        if (!cmd) {
-            return;
-        }
-
-        // ========================================================
-        // BOT ON / BOT OFF
+        // ============================================
+        // 🔴 BOT APAGADO
+        // ============================================
+        // Cuando el bot está apagado:
         //
-        // Este comando debe poder ejecutarse incluso cuando
-        // el bot está apagado.
-        // ========================================================
-
-        const esComandoEstadoBot =
+        // .bot sigue funcionando para poder encenderlo.
+        //
+        // TODOS los demás comandos quedan bloqueados.
+        // Esto ocurre ANTES de minijuegos y antes de ejecutar
+        // cualquier comando.
+        // ============================================
+        const esComandoBot =
             nombreComando === 'bot' ||
-            cmd.nombre === 'bot' ||
-            cmd.alias?.includes(nombreComando);
-
-        // ========================================================
-        // COMPROBAR ESTADO DEL BOT
-        // ========================================================
-
-        if (
-            !esComandoEstadoBot &&
-            !botEstaActivo(jid)
-        ) {
-
-            console.log(
-                `[BOT] 💤 Chat apagado: ${jid}`
+            (
+                Array.isArray(cmd.alias) &&
+                cmd.alias.includes('bot')
             );
 
+        if (!botEstaActivo(jid) && !esComandoBot) {
             return;
         }
 
-        // ========================================================
-        // RESPONDER
-        // ========================================================
+        // ============================================
+        // MINIJUEGOS
+        // ============================================
+        // Solo se procesan si el bot está activo.
+        // ============================================
+        const fueMinijuego = await procesarMinijuegos(sock, msg);
 
+        if (fueMinijuego) return;
+
+        // ============================================
+        // EJECUTAR COMANDO
+        // ============================================
         await cmd.ejecutar({
-
             sock,
-
             msg,
-
             args,
-
             argumento,
-
             listaComandos,
-
             prefijo,
-
             fromMe,
-
             isGroup,
-
             jid,
-
             botJid,
 
             responder: {
 
-                // ==================================================
+                // ========================================
                 // TEXTO
-                // ==================================================
-
-                texto: async (
-                    text
-                ) => {
-
+                // ========================================
+                texto: async (text) => {
                     await sock.sendMessage(
                         jid,
-                        {
-                            text: String(text)
-                        },
-                        {
-                            quoted: msg
-                        }
+                        { text },
+                        { quoted: msg }
                     );
                 },
 
-                // ==================================================
+                // ========================================
                 // IMAGEN
-                // ==================================================
-
-                imagen: async (
-                    img,
-                    caption = ''
-                ) => {
-
+                // ========================================
+                imagen: async (img, caption = '') => {
                     await sock.sendMessage(
                         jid,
                         {
                             image: img,
                             caption
                         },
-                        {
-                            quoted: msg
-                        }
+                        { quoted: msg }
                     );
                 },
 
-                // ==================================================
+                // ========================================
                 // VIDEO
-                // ==================================================
-
-                video: async (
-                    vid,
-                    caption = ''
-                ) => {
-
+                // ========================================
+                video: async (vid, caption = '') => {
                     await sock.sendMessage(
                         jid,
                         {
                             video: vid,
                             caption
                         },
-                        {
-                            quoted: msg
-                        }
+                        { quoted: msg }
                     );
                 },
 
-                // ==================================================
+                // ========================================
                 // AUDIO
-                // ==================================================
-
-                audio: async (
-                    aud,
-                    ptt = true
-                ) => {
-
+                // ========================================
+                audio: async (aud, ptt = true) => {
                     await sock.sendMessage(
                         jid,
                         {
@@ -507,76 +251,45 @@ export async function handleMessage(
                             mimetype: 'audio/mpeg',
                             ptt
                         },
-                        {
-                            quoted: msg
-                        }
+                        { quoted: msg }
                     );
                 },
 
-                // ==================================================
+                // ========================================
                 // REACCIÓN
-                // ==================================================
-
-                reaccion: async (
-                    emoji
-                ) => {
-
-                    try {
-
-                        await sock.sendMessage(
-                            jid,
-                            {
-                                react: {
-                                    text: emoji,
-                                    key: msg.key
-                                }
-                            }
-                        );
-
-                    } catch (error) {
-
-                        console.error(
-                            '[HANDLER] Error enviando reacción:',
-                            error?.message || error
-                        );
-                    }
+                // ========================================
+                reaccion: async (emoji) => {
+                    await sock.sendMessage(jid, {
+                        react: {
+                            text: emoji,
+                            key: msg.key
+                        }
+                    });
                 }
             }
         });
 
     } catch (error) {
-
         console.error(
             '[HANDLER] Error al manejar mensaje:',
             error
         );
 
-        // ========================================================
-        // NO RESPONDER CON ERRORES A MENSAJES DEL PROPIO BOT
-        // ========================================================
-
-        if (
-            !msg?.key?.fromMe &&
-            msg?.key?.remoteJid
-        ) {
-
+        if (!msg.key.fromMe) {
             try {
-
                 await sock.sendMessage(
                     msg.key.remoteJid,
                     {
-                        text:
-                            `❌ Error: ${
-                                error?.message ||
-                                'Error desconocido'
-                            }`
+                        text: `❌ Error: ${error.message}`
                     },
-                    {
-                        quoted: msg
-                    }
+                    { quoted: msg }
                 );
-
-            } catch {}
+            } catch (sendError) {
+                console.error(
+                    '[HANDLER] No se pudo enviar el error:',
+                    sendError?.message || sendError
+                );
+            }
         }
     }
 }
