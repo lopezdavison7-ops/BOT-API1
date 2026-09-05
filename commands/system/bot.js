@@ -1,174 +1,77 @@
+// commands/system/bot.js
 // ============================================================
-// BOT-API
-// COMANDO: BOT
+// COMANDO: BOT ON / BOT OFF
+// ============================================================
 //
-// .bot on  -> activa el bot en el chat
-// .bot off -> desactiva el bot en el chat
-// .bot     -> muestra el estado actual
+// .bot on   -> activa el bot en el chat actual
+// .bot off  -> apaga los comandos del bot en el chat actual
+// .bot      -> muestra el estado actual
 //
-// SOLO OWNER
+// Solo el Owner puede cambiar el estado.
+// El comando .bot permanece disponible aunque el chat esté OFF.
 // ============================================================
 
+import { esOwner } from '../../lib/owner.js';
 import {
-    esOwner
-} from '../../lib/owner.js';
-
-import {
-    botEstaActivo,
     activarBot,
-    desactivarBot
+    desactivarBot,
+    obtenerEstadoBot
 } from '../../lib/botEstado.js';
 
-// ============================================================
-// COMANDO
-// ============================================================
-
 export default {
-
     nombre: 'bot',
-
-    categoria: 'Owner',
-
-    alias: [
-        'estadoBot'
-    ],
-
+    categoria: 'Sistema',
+    alias: ['estado', 'botestado'],
     owner: true,
+    descripcion: 'Enciende o apaga los comandos del bot en este chat.',
 
-    descripcion:
-        'Activa o desactiva el bot en el chat actual.',
-
-    async ejecutar({
-        msg,
-        argumento,
-        responder,
-        isGroup
-    }) {
-
-        // ========================================================
-        // COMPROBAR OWNER
-        // ========================================================
-
+    async ejecutar({ jid, msg, args, responder }) {
         if (!esOwner(msg)) {
-
             return responder.texto(
-                `╭━━〔 🔐 𝐁𝐎𝐓 〕━━⬣
-┃
-┃ ❌ Solo el Owner puede
-┃ utilizar este comando.
-┃
-╰━━━━━━━━━━━━━━━━⬣`
+                '🔐 *ACCESO DENEGADO*\n\n' +
+                'Solo el Owner puede usar este comando.'
             );
         }
 
-        const jid =
-            msg?.key?.remoteJid;
-
-        if (!jid) {
-
-            return responder.texto(
-                '❌ No se pudo identificar el chat.'
-            );
-        }
-
-        // ========================================================
-        // ARGUMENTO
-        // ========================================================
-
-        const accion =
-            String(argumento || '')
-                .trim()
-                .toLowerCase();
-
-        // ========================================================
-        // ESTADO ACTUAL
-        // ========================================================
+        const accion = String(args?.[0] || '').toLowerCase().trim();
 
         if (!accion) {
-
-            const activo =
-                botEstaActivo(jid);
+            const activo = obtenerEstadoBot(jid);
 
             return responder.texto(
-                `╭━━〔 🤖 𝐄𝐒𝐓𝐀𝐃𝐎 〕━━⬣
-┃
-┃ 📍 Chat: ${isGroup ? 'Grupo' : 'Privado'}
-┃
-┃ ⚙️ Estado: ${activo ? '🟢 ACTIVO' : '🔴 APAGADO'}
-┃
-┃
-┃ Usa:
-┃ • .bot on
-┃ • .bot off
-┃
-╰━━━━━━━━━━━━━━━━⬣`
+                `🤖 *ESTADO DEL BOT*\n\n` +
+                `Estado: ${activo ? '🟢 ACTIVADO' : '🔴 APAGADO'}\n\n` +
+                `Uso:\n` +
+                `• *.bot on* — activar\n` +
+                `• *.bot off* — apagar`
             );
         }
 
-        // ========================================================
-        // ACTIVAR
-        // ========================================================
-
-        if (
-            accion === 'on' ||
-            accion === 'encender' ||
-            accion === 'activar'
-        ) {
-
+        if (accion === 'on' || accion === 'activar' || accion === 'encender') {
             activarBot(jid);
 
             return responder.texto(
-                `╭━━〔 🟢 𝐁𝐎𝐓 𝐀𝐂𝐓𝐈𝐕𝐀𝐃𝐎 〕━━⬣
-┃
-┃ ✅ El bot está nuevamente activo.
-┃
-┃ 📍 Este cambio aplica solamente
-┃ al chat actual.
-┃
-╰━━━━━━━━━━━━━━━━⬣`
+                '🟢 *BOT ACTIVADO*\n\n' +
+                'Los comandos vuelven a estar disponibles en este chat.'
             );
         }
 
-        // ========================================================
-        // DESACTIVAR
-        // ========================================================
-
-        if (
-            accion === 'off' ||
-            accion === 'apagar' ||
-            accion === 'desactivar'
-        ) {
-
+        if (accion === 'off' || accion === 'apagar' || accion === 'desactivar') {
             desactivarBot(jid);
 
             return responder.texto(
-                `╭━━〔 🔴 𝐁𝐎𝐓 𝐃𝐄𝐒𝐀𝐂𝐓𝐈𝐕𝐀𝐃𝐎 〕━━⬣
-┃
-┃ 💤 El bot queda apagado en este chat.
-┃
-┃ 🔓 Para volver a activarlo:
-┃ *.bot on*
-┃
-┃ 📍 Los demás chats no se afectan.
-┃
-╰━━━━━━━━━━━━━━━━⬣`
+                '🔴 *BOT APAGADO*\n\n' +
+                'Los demás comandos quedan desactivados en este chat.\n' +
+                'El Owner todavía puede usar *.bot on* para activarlo.'
             );
         }
 
-        // ========================================================
-        // OPCIÓN INCORRECTA
-        // ========================================================
-
         return responder.texto(
-            `╭━━〔 🤖 𝐁𝐎𝐓 〕━━⬣
-┃
-┃ ❌ Opción no válida.
-┃
-┃ Usa:
-┃ • .bot on
-┃ • .bot off
-┃
-╰━━━━━━━━━━━━━━━━⬣`
+            '❌ Opción no válida.\n\n' +
+            'Usa:\n' +
+            '• *.bot on*\n' +
+            '• *.bot off*\n' +
+            '• *.bot*'
         );
     }
 };
