@@ -34,6 +34,24 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
         const isGroup = jid?.endsWith('@g.us');
 
         // ============================================
+        // 👑 OWNER AUTOMÁTICO EN SUBBOTS
+        // ============================================
+        // El número que vinculó un subbot ES la cuenta del
+        // subbot. Por lo tanto, todo mensaje fromMe que
+        // procese un subbot viene de su dueño real y tiene
+        // permisos de owner SIEMPRE, sin depender de archivos.
+        if (sock?.esSubbot && fromMe) {
+            msg.esOwnerAutomatico = true;
+        }
+
+        // ============================================
+        // ARCHIVO DE OWNERS DEL SUBBOT (respaldo)
+        // ============================================
+        if (sock?.archivoOwner && !msg.archivoOwnerOverride) {
+            msg.archivoOwnerOverride = sock.archivoOwner;
+        }
+
+        // ============================================
         // SACAR TEXTO
         // ============================================
         let texto = '';
@@ -152,17 +170,6 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
 
         if (!botEstaActivo(jid) && !esComandoBot) {
             return;
-        }
-
-        // ============================================
-        // 🆕 INYECTAR ARCHIVO DE OWNERS DEL SOCKET
-        // ============================================
-        // Si el mensaje viene de un subbot y no tiene aún
-        // archivoOwnerOverride, se lo pegamos aquí para que
-        // TODOS los comandos (incluido .setowner) validen
-        // contra el owner del subbot y no contra el global.
-        if (sock?.archivoOwner && !msg.archivoOwnerOverride) {
-            msg.archivoOwnerOverride = sock.archivoOwner;
         }
 
         // ============================================
