@@ -13,7 +13,6 @@ export async function cargarComandosHandler() {
         comandos = await loadCommands();
         console.log(`[HANDLER] ✅ Comandos cargados: ${comandos.size}`);
     }
-
     return comandos;
 }
 
@@ -38,20 +37,15 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
         // SACAR TEXTO
         // ============================================
         let texto = '';
-
         if (msg.message?.conversation) {
             texto = msg.message.conversation;
-        }
-        else if (msg.message?.extendedTextMessage?.text) {
+        } else if (msg.message?.extendedTextMessage?.text) {
             texto = msg.message.extendedTextMessage.text;
-        }
-        else if (msg.message?.imageMessage?.caption) {
+        } else if (msg.message?.imageMessage?.caption) {
             texto = msg.message.imageMessage.caption;
-        }
-        else if (msg.message?.videoMessage?.caption) {
+        } else if (msg.message?.videoMessage?.caption) {
             texto = msg.message.videoMessage.caption;
-        }
-        else if (
+        } else if (
             msg.message?.interactiveResponseMessage
                 ?.nativeFlowResponseMessage
                 ?.paramsJson
@@ -63,11 +57,9 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
                         .nativeFlowResponseMessage
                         .paramsJson
                 );
-
                 texto = json.id || '';
             } catch {}
-        }
-        else if (
+        } else if (
             msg.message?.listResponseMessage
                 ?.singleSelectReply
                 ?.selectedRowId
@@ -87,7 +79,6 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
         if (/^\d+$/.test(texto.trim())) {
             const num = parseInt(texto.trim(), 10);
             const mapa = global.menuMap?.[jid];
-
             if (mapa && mapa[num]) {
                 texto = `${prefijo}menu ${mapa[num]}`;
             }
@@ -102,11 +93,9 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
         // SEPARAR COMANDO Y ARGUMENTOS
         // ============================================
         const sinPrefijo = texto.slice(prefijo.length).trim();
-
         if (!sinPrefijo) return;
 
         const indiceEspacio = sinPrefijo.search(/\s/);
-
         const nombreComando = (
             indiceEspacio === -1
                 ? sinPrefijo
@@ -132,7 +121,6 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
         ) {
             const num = parseInt(args[0], 10);
             const mapa = global.menuMap?.[jid];
-
             if (mapa && mapa[num]) {
                 args[0] = mapa[num];
             }
@@ -142,7 +130,6 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
         // BUSCAR COMANDO
         // ============================================
         let cmd = comandos.get(nombreComando);
-
         if (!cmd) {
             cmd = [...comandos.values()].find(
                 c =>
@@ -156,14 +143,6 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
         // ============================================
         // 🔴 BOT APAGADO
         // ============================================
-        // Cuando el bot está apagado:
-        //
-        // .bot sigue funcionando para poder encenderlo.
-        //
-        // TODOS los demás comandos quedan bloqueados.
-        // Esto ocurre ANTES de minijuegos y antes de ejecutar
-        // cualquier comando.
-        // ============================================
         const esComandoBot =
             nombreComando === 'bot' ||
             (
@@ -176,12 +155,20 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
         }
 
         // ============================================
+        // 🆕 INYECTAR ARCHIVO DE OWNERS DEL SOCKET
+        // ============================================
+        // Si el mensaje viene de un subbot y no tiene aún
+        // archivoOwnerOverride, se lo pegamos aquí para que
+        // TODOS los comandos (incluido .setowner) validen
+        // contra el owner del subbot y no contra el global.
+        if (sock?.archivoOwner && !msg.archivoOwnerOverride) {
+            msg.archivoOwnerOverride = sock.archivoOwner;
+        }
+
+        // ============================================
         // MINIJUEGOS
         // ============================================
-        // Solo se procesan si el bot está activo.
-        // ============================================
         const fueMinijuego = await procesarMinijuegos(sock, msg);
-
         if (fueMinijuego) return;
 
         // ============================================
@@ -198,12 +185,7 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
             isGroup,
             jid,
             botJid,
-
             responder: {
-
-                // ========================================
-                // TEXTO
-                // ========================================
                 texto: async (text) => {
                     await sock.sendMessage(
                         jid,
@@ -211,10 +193,6 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
                         { quoted: msg }
                     );
                 },
-
-                // ========================================
-                // IMAGEN
-                // ========================================
                 imagen: async (img, caption = '') => {
                     await sock.sendMessage(
                         jid,
@@ -225,10 +203,6 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
                         { quoted: msg }
                     );
                 },
-
-                // ========================================
-                // VIDEO
-                // ========================================
                 video: async (vid, caption = '') => {
                     await sock.sendMessage(
                         jid,
@@ -239,10 +213,6 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
                         { quoted: msg }
                     );
                 },
-
-                // ========================================
-                // AUDIO
-                // ========================================
                 audio: async (aud, ptt = true) => {
                     await sock.sendMessage(
                         jid,
@@ -254,10 +224,6 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
                         { quoted: msg }
                     );
                 },
-
-                // ========================================
-                // REACCIÓN
-                // ========================================
                 reaccion: async (emoji) => {
                     await sock.sendMessage(jid, {
                         react: {
@@ -268,7 +234,6 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
                 }
             }
         });
-
     } catch (error) {
         console.error(
             '[HANDLER] Error al manejar mensaje:',
