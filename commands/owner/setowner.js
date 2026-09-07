@@ -23,20 +23,12 @@ function obtenerObjetivo(msg) {
             ?.extendedTextMessage
             ?.contextInfo;
 
-    // --------------------------------------------------------
-    // SI MENCIONÓ A ALGUIEN
-    // --------------------------------------------------------
-
     const mencionado =
         contexto?.mentionedJid?.[0];
 
     if (mencionado) {
         return mencionado;
     }
-
-    // --------------------------------------------------------
-    // SI RESPONDIÓ A UN MENSAJE
-    // --------------------------------------------------------
 
     const citado =
         contexto?.participant;
@@ -87,13 +79,13 @@ export default {
     }) => {
 
         // ----------------------------------------------------
-        // SOLO OWNER (el handler no filtra por la propiedad
-        // `owner`, así que cada comando sensible debe
-        // verificarlo aquí — respeta el archivo de owners del
-        // subbot si el mensaje viene de uno)
+        // SOLO OWNER
+        // Ahora pasa explícitamente el archivo de owners del
+        // socket (subbot) para que el check sea correcto
+        // incluso si el handler no inyectó archivoOwnerOverride
         // ----------------------------------------------------
 
-        if (!esOwner(msg)) {
+        if (!esOwner(msg, sock?.archivoOwner)) {
 
             await responder.texto(
                 '❌ Este comando es solo para el Owner.'
@@ -141,16 +133,16 @@ export default {
         try {
 
             // ------------------------------------------------
-            // ARCHIVO DE OWNERS (el del subbot si el mensaje
-            // viene de uno; si no, el compartido de siempre)
+            // ARCHIVO DE OWNERS
             // ------------------------------------------------
 
             const archivo =
-                msg?.archivoOwnerOverride;
+                sock?.archivoOwner ||
+                msg?.archivoOwnerOverride ||
+                null;
 
             // ------------------------------------------------
-            // OWNER PRINCIPAL (solo existe en el bot compartido;
-            // un subbot no tiene ese concepto)
+            // OWNER PRINCIPAL (solo en el bot principal)
             // ------------------------------------------------
 
             const principal =
