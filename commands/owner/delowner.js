@@ -1,129 +1,148 @@
 // commands/owner/delowner.js
-import fs from 'fs/promises';
-import path from 'path';
+// ============================================================
+// COMANDO: DELOWNER
+// Elimina un owner adicional.
+//
+// ✅ CORREGIDO:
+// - Ya no usa ruta manual rota (process.cwd() + ../../database).
+// - Usa lib/owner.js: ruta correcta + archivo del subbot.
+// - AHORA SÍ verifica que quien lo use sea Owner (antes
+//   cualquiera podía borrar owners).
+// - El Owner principal del bot compartido nunca se puede
+//   eliminar (lib/owner.js ya lo protege).
+// ============================================================
 
-const OWNER_FILE = path.join(process.cwd(), '../../database', 'owner.json');
+import {
+    esOwner,
+    eliminarOwner,
+    obtenerOwners
+} from '../../lib/owner.js';
+
+// ============================================================
+// LIMPIAR NÚMERO
+// ============================================================
+
+function limpiarNumero(valor) {
+    return String(valor || '')
+        .split('@')[0]
+        .split(':')[0]
+        .replace(/\D/g, '');
+}
+
+// ============================================================
+// COMANDO
+// ============================================================
 
 export default {
+
     nombre: 'delowner',
+
     categoria: 'Owner',
-    alias: ['deleteowner', 'removerowner'],
-    descripcion: 'Elimina un propietario del bot (menciona, responde o escribe el número)',
-    ejecutar: async ({ msg, sock, responder, argumento }) => {
-        try {
-            // 1. Obtener el número a eliminar
-            let targetNumber = null;
 
-            // FORMA 1: Respondiendo a un mensaje
-            const quoted = msg.message?.extendedTextMessage?.contextInfo?.participant;
-            if (quoted) {
-                targetNumber = quoted.split('@')[0];
-            }
+    alias: [
+        'deleteowner',
+        'removerowner',
+        'quitarowner'
+    ],
 
-            // FORMA 2: Mención
-            const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
-            if (mentioned.length > 0) {
-                targetNumber = mentioned[0].split('@')[0];
-            }
+    owner: true,
 
-            // FORMA 3: Número escrito directo
-            if (!targetNumber && argumento) {
-                targetNumber = String(argumento).replace(/[^0-9]/g, '');
-            }
+    descripcion:
+        'Elimina un owner (menciona, responde o escribe el número).',
 
-            if (!targetNumber || targetNumber.length < 10) {
-                await responder.texto(
-                    `❌ *DELOWNER*\n\n` +
-                    `Usa una de estas formas:\n` +
-                    `1️⃣ Responde a un mensaje del usuario\n` +
-                    `2️⃣ Menciona al usuario: *.delowner @usuario*\n` +
-                    `3️⃣ Escribe el número: *.delowner 521234567890*\n\n` +
-                    `📌 Ejemplos:\n` +
-                    `*.delowner @pedro*\n` +
-                    `*.delowner 521234567890*`
-                );
-                return;
-            }
+    ejecutar: async ({
+        msg,
+        sock,
+        responder,
+        argumento
+    }) => {
 
-            // 2. Leer el archivo owner.json
-            let data = {};
-            try {
-                const raw = await fs.readFile(OWNER_FILE, 'utf8');
-                data = JSON.parse(raw);
-            } catch {
-                await responder.texto('❌ No se pudo leer la base de datos de propietarios.');
-                return;
-            }
+        // ----------------------------------------------------
+        // SOLO OWNER (respeta subbot + owner automático)
+        // ----------------------------------------------------
 
-            // 3. Obtener el array de owners
-            let owners = [];
-            if (Array.isArray(data)) {
-                owners = data;
-            } else if (data.owners && Array.isArray(data.owners)) {
-                owners = data.owners;
-            } else {
-                owners = Object.values(data).filter(v => typeof v === 'string');
-            }
-
-            if (owners.length === 0) {
-                await responder.texto('❌ No hay propietarios registrados.');
-                return;
-            }
-
-            // 4. Buscar el número en el array (sin importar formato)
-            let foundIndex = -1;
-            for (let i = 0; i < owners.length; i++) {
-                const ownerNumber = String(owners[i]).replace(/[^0-9]/g, '');
-                if (ownerNumber === targetNumber) {
-                    foundIndex = i;
-                    break;
-                }
-            }
-
-            if (foundIndex === -1) {
-                await responder.texto('❌ Ese usuario no es un propietario registrado.');
-                return;
-            }
-
-            // 5. Eliminar y guardar
-            owners.splice(foundIndex, 1);
-
-            // Guardar en el mismo formato que tenía
-            if (Array.isArray(data)) {
-                data = owners;
-            } else if (data.owners && Array.isArray(data.owners)) {
-                data.owners = owners;
-            } else {
-                data = owners;
-            }
-
-            await fs.writeFile(OWNER_FILE, JSON.stringify(data, null, 2));
-
-            // 6. Mensaje de confirmación
-            const respuesta = `
-╭〔 ✅ 𝐎𝐖𝐍𝐄𝐑 𝐄𝐋𝐈𝐌𝐈𝐍𝐀𝐃𝐎 〕⬣
-┃
-┃ 🗑️ Usuario eliminado: @${targetNumber}
-┃
-┃ 👥 Total Owners: ${owners.length}
-┃
-┃ 💾 Base de datos actualizada.
-┃
-╰━━━━━━━━━━━━━━━━⬣
-
-╰〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 〕⬣
-`;
-
-            await sock.sendMessage(msg.key.remoteJid, {
-                text: respuesta,
-                mentions: [`${targetNumber}@s.whatsapp.net`]
-            }, { quoted: msg });
-
-            console.log(`[DELOWNER] Eliminado: ${targetNumber}`);
-
-        } catch (error) {
-            console.error('[DELOWNER] Error:', error);
-            await responder.texto('❌ Error al eliminar el propietario.');
+        if (!esOwner(msg, sock?.archivoOwner)) {
+            await responder.texto(
+                '❌ Este comando es solo para el Owner.'
+            );
+            return;
         }
+
+        // ----------------------------------------------------
+        // OBTENER OBJETIVO: mención > respuesta > número escrito
+        // ----------------------------------------------------
+
+        const contexto =
+            msg?.message
+                ?.extendedTextMessage
+                ?.contextInfo;
+
+        let objetivo =
+            contexto?.mentionedJid?.[0] ||
+            contexto?.participant ||
+            null;
+
+        if (!objetivo && argumento) {
+            objetivo = argumento;
+        }
+
+        const numero = limpiarNumero(objetivo);
+
+        if (!numero || numero.length < 8) {
+            await responder.texto(
+                '❌ *DELOWNER*\n\n' +
+                'Usa una de estas formas:\n' +
+                '1️⃣ Responde a un mensaje del usuario\n' +
+                '2️⃣ Menciona al usuario: *.delowner @usuario*\n' +
+                '3️⃣ Escribe el número: *.delowner 521234567890*\n\n' +
+                '📌 Ejemplos:\n' +
+                '*.delowner @pedro*\n' +
+                '*.delowner 521234567890*'
+            );
+            return;
+        }
+
+        // ----------------------------------------------------
+        // ARCHIVO CORRECTO (subbot o compartido)
+        // ----------------------------------------------------
+
+        const archivo =
+            sock?.archivoOwner ||
+            msg?.archivoOwnerOverride ||
+            null;
+
+        // ----------------------------------------------------
+        // ELIMINAR
+        // ----------------------------------------------------
+
+        try {
+            eliminarOwner(numero, archivo);
+        } catch (error) {
+            await responder.texto(
+                `❌ *DELOWNER*\n\n⚠️ ${error?.message || 'No se pudo eliminar.'}`
+            );
+            return;
+        }
+
+        const restantes = obtenerOwners(archivo);
+
+        await sock.sendMessage(
+            msg.key.remoteJid,
+            {
+                text:
+                    '╭〔 ✅ 𝐎𝐖𝐍𝐄𝐑 𝐄𝐋𝐈𝐌𝐈𝐍𝐀𝐎 〕\n' +
+                    '┃\n' +
+                    `┃ 🗑️ Usuario eliminado: @${numero}\n` +
+                    `┃ 👥 Total Owners: ${restantes.length}\n` +
+                    '┃ 💾 Base de datos actualizada.\n' +
+                    '┃\n' +
+                    '╰━━━━━━━━━━━━━━━━\n\n' +
+                    '╰〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 〕',
+                mentions: [`${numero}@s.whatsapp.net`]
+            },
+            { quoted: msg }
+        );
+
+        console.log(`[DELOWNER] Eliminado: ${numero}`);
     }
 };
