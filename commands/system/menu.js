@@ -2,20 +2,28 @@
 // ============================================================
 // MENU - BOT-API 2.0
 // ============================================================
-// MENÚ MULTI-DISEÑO CON BOTÓN DE CANAL
+// MENÚ MULTI-DISEÑO CON BOTONES INTERACTIVOS REALES
 //
-// Cada vez que se usa .menu se selecciona un diseño diferente
-// en ese chat. No repite inmediatamente el diseño anterior.
-// Se conservan las categorías, comandos, menciones, imagen,
-// canal, versión, creador, uptime, fecha y hora.
+// ✅ Botón "📢 UNIRME AL CANAL" (cta_url) que abre el canal.
+// ✅ Botón "🔄 VER OTRO DISEÑO" (quick_reply) que rejecuta .menu.
+// ✅ Imagen en el header si existe media/menu/menu.jpg.
+// ✅ Fallback automático a mensaje clásico si el interactivo falla.
 //
-// ✅ AHORA INCLUYE BOTÓN INTERACTIVO AL CANAL
+// NOTA: los botones viejos (buttons/urlButton) ya NO los muestra
+// WhatsApp oficial — por eso se usa interactiveMessage +
+// nativeFlowMessage, que es lo que sí renderiza hoy.
 // ============================================================
 
 import fs from 'fs';
 import path from 'path';
 import moment from 'moment-timezone';
+import * as baileysNS from 'baileys';
 import { obtenerStore } from '../../lib/jsonStore.js';
+
+const prepareWAMessageMedia =
+    baileysNS.prepareWAMessageMedia ??
+    baileysNS.default?.prepareWAMessageMedia ??
+    null;
 
 const VERSION = '2.0.0';
 const CREADOR = 'Luis González';
@@ -25,6 +33,7 @@ const FOTO_MENU = path.join(process.cwd(), 'media', 'menu', 'menu.jpg');
 const VIDEO_MENU_URL = '';
 const CANAL_FILE = path.join(process.cwd(), 'database', 'canal.json');
 
+// 🔗 TU CANAL OFICIAL
 const CANAL_URL = 'https://whatsapp.com/channel/0029Vb8eeKGG3R3kwBcZdp2Q';
 
 const GRUPO_MENCIONES = '120363429140811226@g.us';
@@ -52,7 +61,7 @@ const DISEÑOS = [
         top: '╭━━━━━━━━━━〔 🌌 〕━━━━━━━━━━╮',
         bottom: '╰━━━━━━━━━━〔 🌌 〕━━━━━━━━━━╯',
         titulo: '🌌 *GALAXY MENU*',
-        subtitulo: '✦ 𝑬𝒙𝒑𝒍𝒐𝒓𝒂 𝒆𝒍 𝒖𝒏𝒊𝒗𝒆𝒓𝒔𝒐 ✦',
+        subtitulo: '✦ 𝑬𝒙𝒑𝒐𝒂 𝒍 𝒏𝒊𝒗𝒆𝒓𝒔 ✦',
         info: '╭──────〔 🌌 *I N F O* 〕──────╮',
         infoEnd: '╰────────────────────────────╯',
         category: '╭━━━〔 {icon} *{name}* 〕━━━╮',
@@ -66,7 +75,7 @@ const DISEÑOS = [
         top: '╔═══════════〔 💜 〕═══════════╗',
         bottom: '╚═══════════〔 💜 〕═══════════╝',
         titulo: '💜 *ＮＥＯＮ ＭＥＮＵ*',
-        subtitulo: '⚡ 𝑷𝒐𝒘𝒆𝒓 • 𝑪𝒐𝒅𝒆 • 𝑴𝒂𝒈𝒊𝒄 ⚡',
+        subtitulo: '⚡ 𝒐𝒘𝒓 • 𝒐𝒆 • 𝒂𝒈𝒊𝒄 ⚡',
         info: '╭━━〔 💜 *SYSTEM INFO* 〕━━╮',
         infoEnd: '╰━━━━━━━━━━━━━━━━━━━━━━━━━━╯',
         category: '╭──〔 💜 {icon} *{name}* 〕──╮',
@@ -79,8 +88,8 @@ const DISEÑOS = [
         nombre: 'Sakura', emoji: '🌸',
         top: '╭━━━━━━━〔 🌸 〕━━━━━━━╮',
         bottom: '╰━━━━━━━〔 🌸 〕━━━━━━━╯',
-        titulo: '🌸 *𝑺𝑨𝑲𝑼𝑹𝑨 𝑴𝑬𝑵𝑼*',
-        subtitulo: '♡ 𝑼𝒏 𝒎𝒆𝒏𝒖́ 𝒄𝒐𝒏 𝒖𝒏 𝒕𝒐𝒒𝒖𝒆 𝒆𝒔𝒑𝒆𝒄𝒊𝒂𝒍 ♡',
+        titulo: '🌸 *𝑺𝑨𝑲𝑹 𝑴𝑵𝑼*',
+        subtitulo: '♡ 𝑼𝒏 𝒎𝒆𝒖́ 𝒐 𝒖 𝒕𝒒𝒖𝒆 𝒔𝒆𝒄𝒂 ♡',
         info: '╭──〔 🌷 *𝑰𝑵𝑭𝑶* 〕──╮',
         infoEnd: '╰──────────────────────╯',
         category: '╭━━〔 🌸 {icon} *{name}* 〕━━╮',
@@ -94,7 +103,7 @@ const DISEÑOS = [
         top: '🔥━━━━━━━━〔 🔥 〕━━━━━━━━🔥',
         bottom: '🔥━━━━━━━━〔 🔥 〕━━━━━━━━🔥',
         titulo: '🔥 *F I R E   M E N U*',
-        subtitulo: '⚡ 𝑻𝒐𝒅𝒐 𝒆𝒍 𝒑𝒐𝒅𝒆𝒓 𝒆𝒏 𝒕𝒖𝒔 𝒎𝒂𝒏𝒐𝒔 ⚡',
+        subtitulo: '⚡ 𝑻𝒐𝒅 𝒆 𝒑𝒅𝒓 𝒏 𝒕𝒖𝒔 𝒎𝒂𝒏𝒐𝒔 ⚡',
         info: '🔥╭━━〔 *SYSTEM* 〕━━╮',
         infoEnd: '🔥╰━━━━━━━━━━━━━━━━━━╯',
         category: '🔥╭━━〔 {icon} *{name}* 〕━━╮',
@@ -107,8 +116,8 @@ const DISEÑOS = [
         nombre: 'Luxury', emoji: '💎',
         top: '╭══════════〔 💎 〕══════════╮',
         bottom: '╰══════════〔 💎 〕══════════╯',
-        titulo: '💎 *𝑳𝑼𝑿𝑼𝑹𝒀 𝑴𝑬𝑵𝑼*',
-        subtitulo: '♛ 𝑬𝒍𝒆𝒈𝒂𝒏𝒄𝒊𝒂 • 𝑷𝒐𝒘𝒆𝒓 • 𝑷𝒓𝒆𝒔𝒕𝒊𝒈𝒆 ♛',
+        titulo: '💎 *𝑳𝑿𝑼𝑹𝒀 𝑴𝑵𝑼*',
+        subtitulo: '♛ 𝑬𝒍𝒆𝒈𝒂𝒏𝒊 • 𝑷𝒘𝒓 • 𝒓𝒆𝒔𝒕𝒊𝒈 ♛',
         info: '╭────〔 💎 *VIP INFO* 〕────╮',
         infoEnd: '╰───────────────────────────╯',
         category: '╭══〔 💎 {icon} *{name}* 〕══╮',
@@ -121,8 +130,8 @@ const DISEÑOS = [
         nombre: 'Ocean', emoji: '🌊',
         top: '🌊╭━━━━━━━━〔 🌊 〕━━━━━━━━╮',
         bottom: '🌊╰━━━━━━━━〔 🌊 〕━━━━━━━━╯',
-        titulo: '🌊 *𝑶𝑪𝑬𝑨𝑵 𝑴𝑬𝑵𝑼*',
-        subtitulo: '🐚 𝑭𝒍𝒖𝒚𝒆 𝒑𝒐𝒓 𝒍𝒂𝒔 𝒐𝒑𝒄𝒊𝒐𝒏𝒆𝒔 🐚',
+        titulo: '🌊 *𝑶𝑪𝑬𝑨𝑵 𝑬𝑼*',
+        subtitulo: '🐚 𝑭𝒍𝒖𝒚 𝒑𝒓 𝒂𝒔 𝒐𝒑𝒄𝒊𝒐𝒏𝒆𝒔 🐚',
         info: '╭───〔 🌊 *OCEAN INFO* 〕───╮',
         infoEnd: '╰───────────────────────────╯',
         category: '🌊╭──〔 {icon} *{name}* 〕──╮',
@@ -136,7 +145,7 @@ const DISEÑOS = [
         top: '╔═══════〔 🖤 〕═══════╗',
         bottom: '╚═══════〔 🖤 〕═══════╝',
         titulo: '🖤 *D A R K   M E N U*',
-        subtitulo: '☠︎ 𝑻𝒉𝒆 𝒅𝒂𝒓𝒌 𝒔𝒊𝒅𝒆 𝒐𝒇 𝒄𝒐𝒅𝒆 ☠︎',
+        subtitulo: '☠︎ 𝑻𝒆 𝒅𝒂𝒓𝒌 𝒊𝒆 𝒇 𝒐𝒅𝒆 ☠︎',
         info: '╭──〔 🖤 *DARK SYSTEM* 〕──╮',
         infoEnd: '╰─────────────────────────╯',
         category: '╭─〔 🖤 {icon} *{name}* 〕─╮',
@@ -149,8 +158,8 @@ const DISEÑOS = [
         nombre: 'Rainbow', emoji: '🌈',
         top: '🌈━━━━━━━━〔 🌈 〕━━━━━━━━🌈',
         bottom: '🌈━━━━━━━━〔 🌈 〕━━━━━━━━🌈',
-        titulo: '🌈 *𝑹𝑨𝑰𝑵𝑩𝑶𝑾 𝑴𝑬𝑵𝑼*',
-        subtitulo: '✨ 𝑪𝒐𝒍𝒐𝒓 • 𝑭𝒖𝒏 • 𝑷𝒐𝒘𝒆𝒓 ✨',
+        titulo: '🌈 *𝑹𝑨𝑵𝑶 𝑴𝑵𝑼*',
+        subtitulo: '✨ 𝑪𝒍𝒐𝒓 • 𝑭𝒏 • 𝒐𝒆𝒓 ✨',
         info: '╭━━〔 🌈 *INFO* 〕━━╮',
         infoEnd: '╰━━━━━━━━━━━━━━━━━━╯',
         category: '╭━━〔 🌈 {icon} *{name}* 〕━━╮',
@@ -164,7 +173,7 @@ const DISEÑOS = [
         top: '╭━━━〔 🤖 CYBER 〕━━━╮',
         bottom: '╰━━━〔 🤖 CYBER 〕━━━╯',
         titulo: '🤖 *ＣＹＢＥＲ  ＭＥＮＵ*',
-        subtitulo: '▣ 𝑺𝒚𝒔𝒕𝒆𝒎 𝒐𝒏𝒍𝒊𝒏𝒆 • 𝑨𝒄𝒄𝒆𝒔𝒔 𝒈𝒓𝒂𝒏𝒕𝒆𝒅 ▣',
+        subtitulo: '▣ 𝑺𝒚𝒔𝒆 𝒐𝒍𝒏 • 𝑨𝒄𝒔 𝒈𝒓𝒂𝒏𝒕𝒆𝒅 ▣',
         info: '╭─〔 🤖 *SYSTEM STATUS* 〕─╮',
         infoEnd: '╰──────────────────────────╯',
         category: '╭─〔 🤖 {icon} *{name}* 〕─╮',
@@ -178,7 +187,7 @@ const DISEÑOS = [
         top: '♛━━━━━━━━〔 👑 〕━━━━━━━━♛',
         bottom: '♛━━━━━━━━〔 👑 〕━━━━━━━━♛',
         titulo: '👑 *𝑹𝑶𝒀𝑨𝑳 𝑴𝑬𝑵𝑼*',
-        subtitulo: '⚜️ 𝑻𝒉𝒆 𝒓𝒐𝒚𝒂𝒍 𝒃𝒐𝒕 𝒆𝒙𝒑𝒆𝒓𝒊𝒆𝒏𝒄𝒆 ⚜️',
+        subtitulo: '⚜️ 𝑻𝒆 𝒐𝒚𝒍 𝒐 𝒆𝒑𝒓𝒆𝒄 ⚜️',
         info: '╭━━〔 👑 *ROYAL INFO* 〕━━╮',
         infoEnd: '╰━━━━━━━━━━━━━━━━━━━━━━━━╯',
         category: '╭━━〔 👑 {icon} *{name}* 〕━━╮',
@@ -351,12 +360,11 @@ function generarMenuCompleto(categorias, prefijo, mencionTexto, botName, diseño
         texto += `${diseño.categoryEnd}\n`;
     }
 
-    const canal = obtenerCanal();
-    if (canal) {
-        texto += `\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
-        texto += `📢 *CANAL OFICIAL*\n${canal}\n`;
-        texto += `━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
-    }
+    // Si canal.json está vacío, se muestra igual tu canal fijo.
+    const canal = obtenerCanal() || CANAL_URL;
+    texto += `\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+    texto += `📢 *CANAL OFICIAL*\n${canal}\n`;
+    texto += `━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
 
     texto += `\n💡 Usa *${prefijo}menu <comando>* para más información.\n\n`;
     texto += `${diseño.footer}\n\n`;
@@ -364,6 +372,81 @@ function generarMenuCompleto(categorias, prefijo, mencionTexto, botName, diseño
     texto += `${diseño.bottom}`;
 
     return texto;
+}
+
+// ============================================================
+// BOTONES INTERACTIVOS REALES (lo que SÍ muestra WhatsApp)
+// ============================================================
+
+function construirBotones() {
+    return [
+        {
+            name: 'cta_url',
+            buttonParamsJson: JSON.stringify({
+                display_text: '📢 UNIRME AL CANAL',
+                url: CANAL_URL,
+                merchant_url: CANAL_URL
+            })
+        },
+        {
+            name: 'quick_reply',
+            buttonParamsJson: JSON.stringify({
+                display_text: '🔄 VER OTRO DISEÑO',
+                id: '.menu'
+            })
+        }
+    ];
+}
+
+async function enviarMenuInteractivo(sock, jid, menuTexto, mentions) {
+    const interactiveMessage = {
+        header: {
+            title: '💻 BOT-API ⚡',
+            subtitle: 'MENÚ DE COMANDOS',
+            hasMediaAttachment: false
+        },
+        body: { text: menuTexto },
+        footer: { text: '💻 BOT-API ⚡ • Toca un botón' },
+        nativeFlowMessage: {
+            buttons: construirBotones(),
+            messageParamsJson: ''
+        }
+    };
+
+    if (mentions?.length) {
+        interactiveMessage.contextInfo = { mentionedJid: mentions };
+    }
+
+    // Imagen en el header si existe media/menu/menu.jpg
+    if (fs.existsSync(FOTO_MENU) && typeof prepareWAMessageMedia === 'function') {
+        try {
+            const media = await prepareWAMessageMedia(
+                { image: fs.readFileSync(FOTO_MENU) },
+                { uploader: sock.waUploadToServer }
+            );
+
+            if (media?.imageMessage) {
+                interactiveMessage.header = {
+                    imageMessage: media.imageMessage,
+                    hasMediaAttachment: true
+                };
+            }
+        } catch (e) {
+            console.error('[MENU] Imagen de header falló, uso título:', e?.message || e);
+        }
+    }
+
+    await sock.relayMessage(jid, {
+        viewOnceMessage: {
+            message: {
+                messageContextInfo: {
+                    deviceListMetadata: {},
+                    deviceListMetadataVersion: 2
+                },
+                interactiveMessage
+            }
+        }
+    }, {});
 }
 
 // ============================================================
@@ -399,27 +482,28 @@ export default {
                 { mencionesTexto: textoMenciones }
             );
 
-            // ============================================================
-            // BOTÓN DEL CANAL
-            // ============================================================
-            const botonCanal = {
-                urlButton: {
-                    displayText: '📢 Canal Oficial',
-                    url: CANAL_URL
-                },
-                type: 1,
-                nativeFlowResponseMessage: ''
-            };
+            // ------------------------------------------------
+            // 1) MENÚ INTERACTIVO CON BOTONES (prioridad)
+            // ------------------------------------------------
+            try {
+                await enviarMenuInteractivo(sock, jid, menuTexto, todasLasMenciones);
+                return;
+            } catch (errorBotones) {
+                console.error(
+                    '[MENU] Botones fallaron, uso mensaje clásico:',
+                    errorBotones?.message || errorBotones
+                );
+            }
 
+            // ------------------------------------------------
+            // 2) FALLBACK: mensaje clásico con imagen o texto
+            // ------------------------------------------------
             if (VIDEO_MENU_URL) {
                 await sock.sendMessage(jid, {
                     video: { url: VIDEO_MENU_URL },
                     caption: menuTexto,
                     gifPlayback: false,
-                    mentions: todasLasMenciones,
-                    buttons: [botonCanal],
-                    headerType: 1,
-                    viewOnce: false
+                    mentions: todasLasMenciones
                 }, { quoted: msg });
                 return;
             }
@@ -428,20 +512,14 @@ export default {
                 await sock.sendMessage(jid, {
                     image: { url: FOTO_MENU },
                     caption: menuTexto,
-                    mentions: todasLasMenciones,
-                    buttons: [botonCanal],
-                    headerType: 1,
-                    viewOnce: false
+                    mentions: todasLasMenciones
                 }, { quoted: msg });
                 return;
             }
 
             await sock.sendMessage(jid, {
                 text: menuTexto,
-                mentions: todasLasMenciones,
-                buttons: [botonCanal],
-                headerType: 1,
-                viewOnce: false
+                mentions: todasLasMenciones
             }, { quoted: msg });
 
         } catch (error) {
