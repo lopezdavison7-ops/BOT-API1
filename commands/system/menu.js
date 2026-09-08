@@ -1,12 +1,15 @@
+// commands/system/menu.js
 // ============================================================
 // MENU - BOT-API 2.0
 // ============================================================
-// MENÚ MULTI-DISEÑO
+// MENÚ MULTI-DISEÑO CON BOTÓN DE CANAL
 //
 // Cada vez que se usa .menu se selecciona un diseño diferente
 // en ese chat. No repite inmediatamente el diseño anterior.
 // Se conservan las categorías, comandos, menciones, imagen,
 // canal, versión, creador, uptime, fecha y hora.
+//
+// ✅ AHORA INCLUYE BOTÓN INTERACTIVO AL CANAL
 // ============================================================
 
 import fs from 'fs';
@@ -21,6 +24,8 @@ const ZONA_HORARIA = 'America/Managua';
 const FOTO_MENU = path.join(process.cwd(), 'media', 'menu', 'menu.jpg');
 const VIDEO_MENU_URL = '';
 const CANAL_FILE = path.join(process.cwd(), 'database', 'canal.json');
+
+const CANAL_URL = 'https://whatsapp.com/channel/0029Vb8eeKGG3R3kwBcZdp2Q';
 
 const GRUPO_MENCIONES = '120363429140811226@g.us';
 const CANTIDAD_MENCIONES = 5;
@@ -394,12 +399,27 @@ export default {
                 { mencionesTexto: textoMenciones }
             );
 
+            // ============================================================
+            // BOTÓN DEL CANAL
+            // ============================================================
+            const botonCanal = {
+                urlButton: {
+                    displayText: '📢 Canal Oficial',
+                    url: CANAL_URL
+                },
+                type: 1,
+                nativeFlowResponseMessage: ''
+            };
+
             if (VIDEO_MENU_URL) {
                 await sock.sendMessage(jid, {
                     video: { url: VIDEO_MENU_URL },
                     caption: menuTexto,
                     gifPlayback: false,
-                    mentions: todasLasMenciones
+                    mentions: todasLasMenciones,
+                    buttons: [botonCanal],
+                    headerType: 1,
+                    viewOnce: false
                 }, { quoted: msg });
                 return;
             }
@@ -408,14 +428,20 @@ export default {
                 await sock.sendMessage(jid, {
                     image: { url: FOTO_MENU },
                     caption: menuTexto,
-                    mentions: todasLasMenciones
+                    mentions: todasLasMenciones,
+                    buttons: [botonCanal],
+                    headerType: 1,
+                    viewOnce: false
                 }, { quoted: msg });
                 return;
             }
 
             await sock.sendMessage(jid, {
                 text: menuTexto,
-                mentions: todasLasMenciones
+                mentions: todasLasMenciones,
+                buttons: [botonCanal],
+                headerType: 1,
+                viewOnce: false
             }, { quoted: msg });
 
         } catch (error) {
