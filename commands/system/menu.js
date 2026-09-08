@@ -2,28 +2,19 @@
 // ============================================================
 // MENU - BOT-API 2.0
 // ============================================================
-// MENÚ MULTI-DISEÑO CON BOTONES INTERACTIVOS REALES
+// MENÚ MULTI-DISEÑO
 //
-// ✅ Botón "📢 UNIRME AL CANAL" (cta_url) que abre el canal.
-// ✅ Botón "🔄 VER OTRO DISEÑO" (quick_reply) que rejecuta .menu.
-// ✅ Imagen en el header si existe media/menu/menu.jpg.
-// ✅ Fallback automático a mensaje clásico si el interactivo falla.
-//
-// NOTA: los botones viejos (buttons/urlButton) ya NO los muestra
-// WhatsApp oficial — por eso se usa interactiveMessage +
-// nativeFlowMessage, que es lo que sí renderiza hoy.
+// ✅ La foto del menú se envía como mensaje NORMAL (se puede
+//    guardar, reenviar y descargar como siempre).
+// ✅ El botón del canal va en una tarjeta interactiva aparte
+//    (interactiveMessage + nativeFlowMessage), que es el único
+//    formato de botones que WhatsApp oficial renderiza hoy.
 // ============================================================
 
 import fs from 'fs';
 import path from 'path';
 import moment from 'moment-timezone';
-import * as baileysNS from 'baileys';
 import { obtenerStore } from '../../lib/jsonStore.js';
-
-const prepareWAMessageMedia =
-    baileysNS.prepareWAMessageMedia ??
-    baileysNS.default?.prepareWAMessageMedia ??
-    null;
 
 const VERSION = '2.0.0';
 const CREADOR = 'Luis González';
@@ -61,7 +52,7 @@ const DISEÑOS = [
         top: '╭━━━━━━━━━━〔 🌌 〕━━━━━━━━━━╮',
         bottom: '╰━━━━━━━━━━〔 🌌 〕━━━━━━━━━━╯',
         titulo: '🌌 *GALAXY MENU*',
-        subtitulo: '✦ 𝑬𝒙𝒑𝒐𝒂 𝒍 𝒏𝒊𝒗𝒆𝒓𝒔 ✦',
+        subtitulo: '✦ 𝑬𝒑𝒐𝒓𝒂 𝒍 𝒏𝒗𝒓𝒐 ✦',
         info: '╭──────〔 🌌 *I N F O* 〕──────╮',
         infoEnd: '╰────────────────────────────╯',
         category: '╭━━━〔 {icon} *{name}* 〕━━━╮',
@@ -75,7 +66,7 @@ const DISEÑOS = [
         top: '╔═══════════〔 💜 〕═══════════╗',
         bottom: '╚═══════════〔 💜 〕═══════════╝',
         titulo: '💜 *ＮＥＯＮ ＭＥＮＵ*',
-        subtitulo: '⚡ 𝒐𝒘𝒓 • 𝒐𝒆 • 𝒂𝒈𝒊𝒄 ⚡',
+        subtitulo: '⚡ 𝑷𝒘𝒓 • 𝑪𝒅 • 𝑴𝒈𝒄 ',
         info: '╭━━〔 💜 *SYSTEM INFO* 〕━━╮',
         infoEnd: '╰━━━━━━━━━━━━━━━━━━━━━━━━━━╯',
         category: '╭──〔 💜 {icon} *{name}* 〕──╮',
@@ -88,8 +79,8 @@ const DISEÑOS = [
         nombre: 'Sakura', emoji: '🌸',
         top: '╭━━━━━━━〔 🌸 〕━━━━━━━╮',
         bottom: '╰━━━━━━━〔 🌸 〕━━━━━━━╯',
-        titulo: '🌸 *𝑺𝑨𝑲𝑹 𝑴𝑵𝑼*',
-        subtitulo: '♡ 𝑼𝒏 𝒎𝒆𝒖́ 𝒐 𝒖 𝒕𝒒𝒖𝒆 𝒔𝒆𝒄𝒂 ♡',
+        titulo: '🌸 *𝑺𝑲𝑼𝑹 𝑴𝑬𝑵𝑼*',
+        subtitulo: '♡ 𝑼𝒏 𝒎𝒆𝒖́ 𝒐 𝒖 𝒕𝒒𝒆 𝒔𝒑𝒆𝒄𝒂 ♡',
         info: '╭──〔 🌷 *𝑰𝑵𝑭𝑶* 〕──╮',
         infoEnd: '╰──────────────────────╯',
         category: '╭━━〔 🌸 {icon} *{name}* 〕━━╮',
@@ -103,7 +94,7 @@ const DISEÑOS = [
         top: '🔥━━━━━━━━〔 🔥 〕━━━━━━━━🔥',
         bottom: '🔥━━━━━━━━〔 🔥 〕━━━━━━━━🔥',
         titulo: '🔥 *F I R E   M E N U*',
-        subtitulo: '⚡ 𝑻𝒐𝒅 𝒆 𝒑𝒅𝒓 𝒏 𝒕𝒖𝒔 𝒎𝒂𝒏𝒐𝒔 ⚡',
+        subtitulo: '⚡ 𝑻𝒐𝒅 𝒆 𝒑𝒅𝒆 𝒆𝒏 𝒕𝒖𝒔 𝒎𝒏𝒔 ',
         info: '🔥╭━━〔 *SYSTEM* 〕━━╮',
         infoEnd: '🔥╰━━━━━━━━━━━━━━━━━━╯',
         category: '🔥╭━━〔 {icon} *{name}* 〕━━╮',
@@ -116,8 +107,8 @@ const DISEÑOS = [
         nombre: 'Luxury', emoji: '💎',
         top: '╭══════════〔 💎 〕══════════╮',
         bottom: '╰══════════〔 💎 〕══════════╯',
-        titulo: '💎 *𝑳𝑿𝑼𝑹𝒀 𝑴𝑵𝑼*',
-        subtitulo: '♛ 𝑬𝒍𝒆𝒈𝒂𝒏𝒊 • 𝑷𝒘𝒓 • 𝒓𝒆𝒔𝒕𝒊𝒈 ♛',
+        titulo: '💎 *𝑳𝑿𝑼𝑹 𝑴𝑵𝑼*',
+        subtitulo: '♛ 𝑬𝒍𝒆𝒈𝒏𝒄𝒂 • 𝒐𝒆 • 𝑷𝒓𝒆𝒔𝒊𝒈 ♛',
         info: '╭────〔 💎 *VIP INFO* 〕────╮',
         infoEnd: '╰───────────────────────────╯',
         category: '╭══〔 💎 {icon} *{name}* 〕══╮',
@@ -130,8 +121,8 @@ const DISEÑOS = [
         nombre: 'Ocean', emoji: '🌊',
         top: '🌊╭━━━━━━━━〔 🌊 〕━━━━━━━━╮',
         bottom: '🌊╰━━━━━━━━〔 🌊 〕━━━━━━━━╯',
-        titulo: '🌊 *𝑶𝑪𝑬𝑨𝑵 𝑬𝑼*',
-        subtitulo: '🐚 𝑭𝒍𝒖𝒚 𝒑𝒓 𝒂𝒔 𝒐𝒑𝒄𝒊𝒐𝒏𝒆𝒔 🐚',
+        titulo: '🌊 *𝑶𝑪𝑬𝑨𝑵 𝑴𝑬𝑵𝑼*',
+        subtitulo: '🐚 𝑭𝒍𝒖𝒚𝒆 𝒑𝒐𝒓 𝒍𝒂𝒔 𝒑𝒊𝒐𝒏𝒆𝒔 🐚',
         info: '╭───〔 🌊 *OCEAN INFO* 〕───╮',
         infoEnd: '╰───────────────────────────╯',
         category: '🌊╭──〔 {icon} *{name}* 〕──╮',
@@ -145,7 +136,7 @@ const DISEÑOS = [
         top: '╔═══════〔 🖤 〕═══════╗',
         bottom: '╚═══════〔 🖤 〕═══════╝',
         titulo: '🖤 *D A R K   M E N U*',
-        subtitulo: '☠︎ 𝑻𝒆 𝒅𝒂𝒓𝒌 𝒊𝒆 𝒇 𝒐𝒅𝒆 ☠︎',
+        subtitulo: '☠︎ 𝑻𝒆 𝒂𝒌 𝒊𝒅𝒆 𝒐𝒇 𝒄𝒐𝒅𝒆 ☠︎',
         info: '╭──〔 🖤 *DARK SYSTEM* 〕──╮',
         infoEnd: '╰─────────────────────────╯',
         category: '╭─〔 🖤 {icon} *{name}* 〕─╮',
@@ -158,8 +149,8 @@ const DISEÑOS = [
         nombre: 'Rainbow', emoji: '🌈',
         top: '🌈━━━━━━━━〔 🌈 〕━━━━━━━━🌈',
         bottom: '🌈━━━━━━━━〔 🌈 〕━━━━━━━━🌈',
-        titulo: '🌈 *𝑹𝑨𝑵𝑶 𝑴𝑵𝑼*',
-        subtitulo: '✨ 𝑪𝒍𝒐𝒓 • 𝑭𝒏 • 𝒐𝒆𝒓 ✨',
+        titulo: '🌈 *𝑹𝑰𝑩𝑾 𝑬𝑼*',
+        subtitulo: '✨ 𝑪𝒍𝒓 • 𝑭𝒖𝒏 • 𝑷𝒘𝒓 ✨',
         info: '╭━━〔 🌈 *INFO* 〕━━╮',
         infoEnd: '╰━━━━━━━━━━━━━━━━━━╯',
         category: '╭━━〔 🌈 {icon} *{name}* 〕━━╮',
@@ -173,7 +164,7 @@ const DISEÑOS = [
         top: '╭━━━〔 🤖 CYBER 〕━━━╮',
         bottom: '╰━━━〔 🤖 CYBER 〕━━━╯',
         titulo: '🤖 *ＣＹＢＥＲ  ＭＥＮＵ*',
-        subtitulo: '▣ 𝑺𝒚𝒔𝒆 𝒐𝒍𝒏 • 𝑨𝒄𝒔 𝒈𝒓𝒂𝒏𝒕𝒆𝒅 ▣',
+        subtitulo: '▣ 𝑺𝒔𝒕𝒆 𝒐𝒍𝒏 • 𝑨𝒄𝒔𝒔 𝒈𝒓𝒂𝒏𝒕𝒆𝒅 ▣',
         info: '╭─〔 🤖 *SYSTEM STATUS* 〕─╮',
         infoEnd: '╰──────────────────────────╯',
         category: '╭─〔 🤖 {icon} *{name}* 〕─╮',
@@ -375,59 +366,14 @@ function generarMenuCompleto(categorias, prefijo, mencionTexto, botName, diseño
 }
 
 // ============================================================
-// BOTONES INTERACTIVOS REALES (lo que SÍ muestra WhatsApp)
+// TARJETA CON BOTÓN DEL CANAL
+// ============================================================
+// Mensaje interactivo pequeño y separado: así la foto del menú
+// sigue siendo un mensaje NORMAL (guardable/reenviable) y el
+// botón del canal funciona con el formato que WhatsApp sí muestra.
 // ============================================================
 
-function construirBotones() {
-    return [
-        {
-            name: 'cta_url',
-            buttonParamsJson: JSON.stringify({
-                display_text: '📢 UNIRME AL CANAL',
-                url: CANAL_URL,
-                merchant_url: CANAL_URL
-            })
-        }
-    ];
-}
-async function enviarMenuInteractivo(sock, jid, menuTexto, mentions) {
-    const interactiveMessage = {
-        header: {
-            title: '💻 BOT-API ⚡',
-            subtitle: 'MENÚ DE COMANDOS',
-            hasMediaAttachment: false
-        },
-        body: { text: menuTexto },
-        footer: { text: '💻 BOT-API ⚡ • Toca un botón' },
-        nativeFlowMessage: {
-            buttons: construirBotones(),
-            messageParamsJson: ''
-        }
-    };
-
-    if (mentions?.length) {
-        interactiveMessage.contextInfo = { mentionedJid: mentions };
-    }
-
-    // Imagen en el header si existe media/menu/menu.jpg
-    if (fs.existsSync(FOTO_MENU) && typeof prepareWAMessageMedia === 'function') {
-        try {
-            const media = await prepareWAMessageMedia(
-                { image: fs.readFileSync(FOTO_MENU) },
-                { uploader: sock.waUploadToServer }
-            );
-
-            if (media?.imageMessage) {
-                interactiveMessage.header = {
-                    imageMessage: media.imageMessage,
-                    hasMediaAttachment: true
-                };
-            }
-        } catch (e) {
-            console.error('[MENU] Imagen de header falló, uso título:', e?.message || e);
-        }
-    }
-
+async function enviarBotonCanal(sock, jid) {
     await sock.relayMessage(jid, {
         viewOnceMessage: {
             message: {
@@ -435,7 +381,30 @@ async function enviarMenuInteractivo(sock, jid, menuTexto, mentions) {
                     deviceListMetadata: {},
                     deviceListMetadataVersion: 2
                 },
-                interactiveMessage
+                interactiveMessage: {
+                    header: {
+                        title: '💻 BOT-API ⚡',
+                        subtitle: 'CANAL OFICIAL',
+                        hasMediaAttachment: false
+                    },
+                    body: {
+                        text: '📢 Únete al canal para novedades, actualizaciones y soporte del bot.'
+                    },
+                    footer: { text: '💻 BOT-API ⚡' },
+                    nativeFlowMessage: {
+                        buttons: [
+                            {
+                                name: 'cta_url',
+                                buttonParamsJson: JSON.stringify({
+                                    display_text: '📢 UNIRME AL CANAL',
+                                    url: CANAL_URL,
+                                    merchant_url: CANAL_URL
+                                })
+                            }
+                        ],
+                        messageParamsJson: ''
+                    }
+                }
             }
         }
     }, {});
@@ -475,20 +444,7 @@ export default {
             );
 
             // ------------------------------------------------
-            // 1) MENÚ INTERACTIVO CON BOTONES (prioridad)
-            // ------------------------------------------------
-            try {
-                await enviarMenuInteractivo(sock, jid, menuTexto, todasLasMenciones);
-                return;
-            } catch (errorBotones) {
-                console.error(
-                    '[MENU] Botones fallaron, uso mensaje clásico:',
-                    errorBotones?.message || errorBotones
-                );
-            }
-
-            // ------------------------------------------------
-            // 2) FALLBACK: mensaje clásico con imagen o texto
+            // 1) MENÚ CON FOTO NORMAL (guardable y reenviable)
             // ------------------------------------------------
             if (VIDEO_MENU_URL) {
                 await sock.sendMessage(jid, {
@@ -497,22 +453,30 @@ export default {
                     gifPlayback: false,
                     mentions: todasLasMenciones
                 }, { quoted: msg });
-                return;
-            }
-
-            if (fs.existsSync(FOTO_MENU)) {
+            } else if (fs.existsSync(FOTO_MENU)) {
                 await sock.sendMessage(jid, {
                     image: { url: FOTO_MENU },
                     caption: menuTexto,
                     mentions: todasLasMenciones
                 }, { quoted: msg });
-                return;
+            } else {
+                await sock.sendMessage(jid, {
+                    text: menuTexto,
+                    mentions: todasLasMenciones
+                }, { quoted: msg });
             }
 
-            await sock.sendMessage(jid, {
-                text: menuTexto,
-                mentions: todasLasMenciones
-            }, { quoted: msg });
+            // ------------------------------------------------
+            // 2) TARJETA CON EL BOTÓN DEL CANAL
+            // ------------------------------------------------
+            try {
+                await enviarBotonCanal(sock, jid);
+            } catch (errorBoton) {
+                console.error(
+                    '[MENU] Botón del canal falló:',
+                    errorBoton?.message || errorBoton
+                );
+            }
 
         } catch (error) {
             console.error('[MENU] Error:', error);
