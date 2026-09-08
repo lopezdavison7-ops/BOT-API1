@@ -387,17 +387,9 @@ function construirBotones() {
                 url: CANAL_URL,
                 merchant_url: CANAL_URL
             })
-        },
-        {
-            name: 'quick_reply',
-            buttonParamsJson: JSON.stringify({
-                display_text: '🔄 VER OTRO DISEÑO',
-                id: '.menu'
-            })
         }
     ];
 }
-
 async function enviarMenuInteractivo(sock, jid, menuTexto, mentions) {
     const interactiveMessage = {
         header: {
