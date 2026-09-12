@@ -38,20 +38,32 @@ async function esAdmin(sock, msg, grupoJid) {
     return false;
 }
 
+function obtenerTarget(msg, argumento) {
+    const ctx = msg.message?.extendedTextMessage?.contextInfo;
+    const citado = ctx?.participant || ctx?.remoteJid;
+    if (citado && !citado.endsWith('@g.us')) return { jid: citado, tipo: 'respuesta' };
+    const mencionados = ctx?.mentionedJid || [];
+    if (mencionados.length > 0) return { jid: mencionados[0], tipo: 'mencion' };
+    if (argumento) {
+        const numero = String(argumento).replace(/[^0-9]/g, '');
+        if (numero.length >= 8) return { jid: numero + '@s.whatsapp.net', tipo: 'numero' };
+    }
+    return null;
+}
+
 export default {
     nombre: 'setprimary',
     categoria: 'Owner',
     alias: ['primario', 'setprimario', 'primary'],
-    descripcion: 'Marca este bot como primario en el grupo',
-    uso: '.setprimary · .setprimary off · .setprimary status',
+    descripcion: 'Marca cuál bot responde en este grupo',
+    uso: '.setprimary @bot · .setprimary numero · .setprimary off',
     ejecutar: async ({ sock, msg, argumento, responder, botJid }) => {
 
         const grupoJid = msg.key.remoteJid;
         if (!grupoJid?.endsWith('@g.us')) {
-            return await responder.texto('❌ Este comando solo funciona en grupos.');
+            return await responder.texto('❌ Solo funciona en grupos.');
         }
 
-        // Permisos
         let tienePermiso = esOwner(msg);
         let quienSoy = '👑 OWNER';
         if (!tienePermiso) {
@@ -61,9 +73,7 @@ export default {
         if (!tienePermiso) {
             return await responder.texto(
                 '╭━━〔 🚫 𝐀𝐂𝐂𝐄𝐒𝐎 〕━━⬣\n' +
-                '┃\n' +
-                '┃ ❌ Solo OWNER o ADMIN del grupo\n' +
-                '┃\n' +
+                '┃ ❌ Solo OWNER o ADMIN\n' +
                 '╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣'
             );
         }
@@ -71,74 +81,70 @@ export default {
         const accion = String(argumento || '').trim().toLowerCase();
         const db = leer();
 
-        // ============================================
         // OFF
-        // ============================================
-        if (accion === 'off' || accion === 'apagar' || accion === 'desactivar') {
+        if (accion === 'off' || accion === 'apagar') {
             if (!db[grupoJid]?.activo) {
-                return await responder.texto('⚠️ No hay subbot primario en este grupo.');
+                return await responder.texto('⚠️ No hay primario en este grupo.');
             }
             delete db[grupoJid];
             guardar(db);
             return await responder.texto(
                 '╭━━〔 🔴 𝐒𝐄𝐓𝐏𝐑𝐈𝐌𝐀𝐑𝐘 〕━━⬣\n' +
-                '┃\n' +
-                '┃ ✅ Subbot primario DESACTIVADO\n' +
-                '┃ Ahora todos los bots responden\n' +
-                '┃\n' +
+                '┃ ✅ Primario DESACTIVADO\n' +
+                '┃ Todos los bots responden ahora\n' +
                 '╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣'
             );
         }
 
-        // ============================================
         // STATUS
-        // ============================================
-        if (accion === 'status' || accion === 'estado' || accion === 'info') {
+        if (accion === 'status' || accion === 'info') {
             const config = db[grupoJid];
             if (!config?.activo) {
-                return await responder.texto('🔴 No hay subbot primario en este grupo.');
+                return await responder.texto('🔴 No hay primario en este grupo.');
             }
             return await responder.texto(
                 '╭━━〔 👑 𝐏𝐑𝐈𝐌𝐀𝐑𝐘 〕━━⬣\n' +
-                '┃\n' +
-                '┃ ✅ Subbot primario ACTIVO\n' +
-                '┃ 👤 Bot: +' + (config.botNumero || '?') + '\n' +
-                (config.activadoPor ? '┃ Por: ' + config.activadoPor + '\n' : '') +
-                '┃\n' +
+                '┃ ✅ Bot primario: +' + config.botNumero + '\n' +
                 '╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣'
             );
         }
 
-        // ============================================
-        // SET — este bot se auto-asigna
-        // ============================================
-        const miJid = sock.user?.id || botJid;
-        const miNumero = soloNumero(miJid);
+        // SET — obtener el bot target
+        const target = obtenerTarget(msg, argumento);
+        
+        let botPrimarioJid;
+        let botPrimarioNumero;
 
-        console.log('[SETPRIMARY] Mi botJid:', miJid);
-        console.log('[SETPRIMARY] Mi número:', miNumero);
-        console.log('[SETPRIMARY] Grupo:', grupoJid);
+        if (target) {
+            // Se especificó un bot (por mención, respuesta o número)
+            botPrimarioJid = target.jid;
+            botPrimarioNumero = soloNumero(target.jid);
+        } else {
+            // Sin target → este bot se auto-asigna
+            botPrimarioJid = sock.user?.id || botJid;
+            botPrimarioNumero = soloNumero(botPrimarioJid);
+        }
 
         db[grupoJid] = {
             activo: true,
-            botJid: miJid,
-            botNumero: miNumero,
+            botJid: botPrimarioJid,
+            botNumero: botPrimarioNumero,
             activadoPor: quienSoy,
             setEn: Date.now()
         };
         guardar(db);
 
+        console.log('[SETPRIMARY] Guardado - Grupo:', grupoJid, '| Bot primario:', botPrimarioNumero);
+
         await sock.sendMessage(grupoJid, {
             text:
                 '╭━━〔 👑 𝐒𝐄𝐓𝐏𝐑𝐈𝐌𝐀𝐑𝐘 〕━━⬣\n' +
                 '┃\n' +
-                '┃ ✅ Soy el subbot PRIMARIO\n' +
-                '┃ de ESTE grupo\n' +
-                '┃\n' +
-                '┃ 👤 Bot: +' + miNumero + '\n' +
+                '┃ ✅ Bot primario ACTIVADO\n' +
+                '┃ 👤 Bot: +' + botPrimarioNumero + '\n' +
                 '┃ Por: ' + quienSoy + '\n' +
                 '┃\n' +
-                '┃ 🎯 Solo YO respondo aquí\n' +
+                '┃ 🎯 Solo ese bot responde aquí\n' +
                 '┃\n' +
                 '╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣'
         }, { quoted: msg });
