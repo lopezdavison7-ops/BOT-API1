@@ -276,7 +276,7 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
         if (fueMinijuego) return;
 
         // ============================================
-        // 👑 FILTRO PRIMARY (comparación robusta)
+        // 👑 FILTRO PRIMARY (con logs de debug)
         // ============================================
         if (isGroup) {
             try {
@@ -288,65 +288,47 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
                 const config = primaryDb[jid];
 
                 if (config?.activo) {
-                    // Resolver mi propio JID a todos sus números posibles
-                    const misJids = [botJid];
-                    const misNumeros = new Set();
-                    
+                    // Mi identidad
                     const miNumBase = soloNumeroHandler(botJid);
-                    if (miNumBase) misNumeros.add(miNumBase);
-                    
-                    // Si mi JID es LID, intentar resolver a PN
-                    if (botJid?.endsWith('@lid')) {
-                        try {
-                            if (sock?.signalRepository?.lidMapper?.getPNForLid) {
-                                const pn = await sock.signalRepository.lidMapper.getPNForLid(botJid);
-                                if (pn) {
-                                    const pj = pn.includes('@') ? pn : pn + '@s.whatsapp.net';
-                                    misJids.push(pj);
-                                    const pnNum = soloNumeroHandler(pj);
-                                    if (pnNum) misNumeros.add(pnNum);
-                                }
-                            }
-                        } catch (e) { /* sin mapeo */ }
-                    }
-                    
-                    // Si mi JID es PN, también considerar versión @lid
-                    if (botJid?.endsWith('@s.whatsapp.net')) {
-                        misJids.push(botJid.replace('@s.whatsapp.net', '@lid'));
-                    }
-                    
-                    // Lo que guardó el primario
-                    const jidsPrimario = config.jidsCompatibles || [];
                     const numerosPrimario = config.numerosCompatibles || (config.botNumero ? [config.botNumero] : []);
+                    const jidsPrimario = config.jidsCompatibles || [];
+                    
+                    console.log('[PRIMARY DEBUG] ==========');
+                    console.log('[PRIMARY DEBUG] Grupo:', jid);
+                    console.log('[PRIMARY DEBUG] Mi botJid:', botJid);
+                    console.log('[PRIMARY DEBUG] Mi número:', miNumBase);
+                    console.log('[PRIMARY DEBUG] Primario JIDs:', jidsPrimario);
+                    console.log('[PRIMARY DEBUG] Primario números:', numerosPrimario);
+                    console.log('[PRIMARY DEBUG] Comando:', nombreComando);
                     
                     let yoSoyPrimario = false;
                     
-                    // ¿Alguno de mis JIDs coincide con los del primario?
-                    for (const miJid of misJids) {
-                        if (jidsPrimario.includes(miJid)) {
-                            yoSoyPrimario = true;
-                            break;
+                    // ¿Coincide mi JID?
+                    if (jidsPrimario.includes(botJid)) {
+                        yoSoyPrimario = true;
+                        console.log('[PRIMARY DEBUG] ✓ Coincidencia por JID');
+                    }
+                    
+                    // ¿Coincide mi número?
+                    if (!yoSoyPrimario) {
+                        for (const numP of numerosPrimario) {
+                            const limpioP = String(numP).replace(/\D/g, '');
+                            if (limpioP === miNumBase) {
+                                yoSoyPrimario = true;
+                                console.log('[PRIMARY DEBUG] ✓ Coincidencia por número:', limpioP);
+                                break;
+                            }
                         }
                     }
                     
-                    // ¿Alguno de mis números coincide con los del primario?
-                    if (!yoSoyPrimario) {
-                        for (const miNum of misNumeros) {
-                            for (const numP of numerosPrimario) {
-                                const limpioP = String(numP).replace(/\D/g, '');
-                                if (limpioP && limpioP === miNum) {
-                                    yoSoyPrimario = true;
-                                    break;
-                                }
-                            }
-                            if (yoSoyPrimario) break;
-                        }
-                    }
+                    console.log('[PRIMARY DEBUG] ¿Yo soy primario?', yoSoyPrimario);
+                    console.log('[PRIMARY DEBUG] ==========');
                     
                     if (!yoSoyPrimario) {
                         const comandosExcepcion = ['setprimary', 'primario', 'setprimario', 'primary'];
                         if (!comandosExcepcion.includes(nombreComando)) {
-                            return; // 🤫 No soy el primario, me callo
+                            console.log('[PRIMARY DEBUG] 🤫 Me quedo callado');
+                            return;
                         }
                     }
                 }
