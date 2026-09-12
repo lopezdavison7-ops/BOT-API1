@@ -2,12 +2,52 @@
 import { loadCommands } from './controllers/cmdManager.js';
 import { procesarMinijuegos } from './lib/minijuegos.js';
 import { botEstaActivo } from './lib/botEstado.js';
+import fs from 'fs';
+import path from 'path';
 
 const PREFIJO = '.';
+const RUTA_AFK = path.join(process.cwd(), 'database', 'afk.json');
+const RUTA_PRIMARY = path.join(process.cwd(), 'database', 'primary.json');
 
 let comandos = null;
 let botJid = null;
 
+// ============================================================
+// HELPERS
+// ============================================================
+function soloNumeroHandler(jid) {
+    return String(jid || '').split('@')[0].split(':')[0].replace(/\D/g, '');
+}
+function leerAfk() {
+    try { return JSON.parse(fs.readFileSync(RUTA_AFK, 'utf8')); } catch (e) { return {}; }
+}
+function guardarAfk(db) {
+    try {
+        fs.mkdirSync(path.dirname(RUTA_AFK), { recursive: true });
+        fs.writeFileSync(RUTA_AFK, JSON.stringify(db, null, 2), 'utf8');
+    } catch (e) { console.error('[AFK] Error guardando:', e?.message); }
+}
+function fmtTiempo(ms) {
+    const s = Math.max(0, Math.floor(ms / 1000));
+    const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+    if (d) return d + 'd ' + h + 'h';
+    if (h) return h + 'h ' + m + 'm';
+    if (m) return m + 'm ' + sec + 's';
+    return sec + 's';
+}
+function limpiarNombre(n) {
+    return String(n || '').replace(/[*_~`┃╭╰⬣@\n\r]/g, '').trim().slice(0, 25);
+}
+function leerPrimary() {
+    try {
+        if (!fs.existsSync(RUTA_PRIMARY)) return {};
+        return JSON.parse(fs.readFileSync(RUTA_PRIMARY, 'utf8'));
+    } catch (e) { return {}; }
+}
+
+// ============================================================
+// CARGAR COMANDOS
+// ============================================================
 export async function cargarComandosHandler() {
     if (!comandos) {
         comandos = await loadCommands();
@@ -16,6 +56,9 @@ export async function cargarComandosHandler() {
     return comandos;
 }
 
+// ============================================================
+// HANDLE MESSAGE
+// ============================================================
 export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []) {
     try {
         if (!comandos) {
@@ -36,10 +79,6 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
         // ============================================
         // 👑 OWNER AUTOMÁTICO EN SUBBOTS
         // ============================================
-        // El número que vinculó un subbot ES la cuenta del
-        // subbot. Por lo tanto, todo mensaje fromMe que
-        // procese un subbot viene de su dueño real y tiene
-        // permisos de owner SIEMPRE, sin depender de archivos.
         if (sock?.esSubbot && fromMe) {
             msg.esOwnerAutomatico = true;
         }
@@ -49,6 +88,64 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
         // ============================================
         if (sock?.archivoOwner && !msg.archivoOwnerOverride) {
             msg.archivoOwnerOverride = sock.archivoOwner;
+        }
+
+        // ============================================
+        // 🔥 DETECTOR AFK AUTÓNOMO (en CUALQUIER mensaje)
+        // ============================================
+        if (!fromMe) {
+            try {
+                const textoMsg = msg.message?.conversation || msg.message?.extendedTextMessage?.text || '';
+                const esComandoAfk = /^\.afk/i.test(textoMsg.trim());
+
+                if (!esComandoAfk) {
+                    const db = leerAfk();
+                    const sender = msg.key.participant || msg.key.senderPn || msg.key.participantAlt || msg.key.remoteJid;
+
+                    if (db[sender]) {
+                        const data = db[sender];
+                        delete db[sender];
+                        guardarAfk(db);
+
+                        // Mención fija: intenta resolver lid → si no, usa nombre
+                        let textoUser = '@' + String(sender).split('@')[0].replace(/\D/g, '');
+                        let mentions = [sender];
+
+                        try {
+                            if (sender.endsWith('@lid') && sock?.signalRepository?.lidMapper?.getPNForLid) {
+                                const pn = await sock.signalRepository.lidMapper.getPNForLid(sender);
+                                if (pn) {
+                                    const pj = pn.includes('@') ? pn : pn + '@s.whatsapp.net';
+                                    textoUser = '@' + pj.split('@')[0];
+                                    mentions = [pj];
+                                }
+                            }
+                        } catch (e) { /* sin mapeo */ }
+
+                        if (mentions[0]?.endsWith('@lid')) {
+                            const nombreLimpio = limpiarNombre(data.nombre);
+                            if (nombreLimpio) textoUser = '*' + nombreLimpio + '*';
+                        }
+
+                        await sock.sendMessage(jid, {
+                            text:
+                                `╭━━〔 ✅ 𝐕𝐎𝐋𝐕𝐈𝐒𝐓𝐄 〕━━⬣\n` +
+                                `┃\n` +
+                                `┃ 🎉 ${textoUser} ya regresaste!\n` +
+                                `┃\n` +
+                                `┃ 💤 Estuviste AFK: *${fmtTiempo(Date.now() - data.tiempo)}*\n` +
+                                (data.razon ? `┃ 📝 Razón: ${data.razon}\n` : '') +
+                                `┃\n` +
+                                `┃ 🎈 Bienvenido de vuelta\n` +
+                                `┃\n` +
+                                `╰━━━━━━━━━━━━━━━━⬣`,
+                            mentions
+                        }, { quoted: msg });
+                    }
+                }
+            } catch (e) {
+                console.error('[AFK] Error en detector:', e?.message || e);
+            }
         }
 
         // ============================================
@@ -177,6 +274,33 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
         // ============================================
         const fueMinijuego = await procesarMinijuegos(sock, msg);
         if (fueMinijuego) return;
+
+        // ============================================
+        // 👑 FILTRO PRIMARY (solo en grupos)
+        // Si este grupo tiene un subbot primario, solo ese responde
+        // ============================================
+        if (isGroup) {
+            try {
+                const primaryDb = leerPrimary();
+                const config = primaryDb[jid];
+
+                if (config?.activo && config?.botNumero) {
+                    const miNumero = soloNumeroHandler(botJid);
+                    const primarioNumero = String(config.botNumero).replace(/\D/g, '');
+
+                    // Si yo NO soy el primario, me quedo callado
+                    if (miNumero !== primarioNumero) {
+                        // Excepción: comandos de control del primario siempre responden
+                        const comandosExcepcion = ['setprimary', 'primario', 'setprimario', 'primary'];
+                        if (!comandosExcepcion.includes(nombreComando)) {
+                            return;
+                        }
+                    }
+                }
+            } catch (e) {
+                console.error('[PRIMARY] Error en filtro:', e?.message || e);
+            }
+        }
 
         // ============================================
         // EJECUTAR COMANDO
