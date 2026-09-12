@@ -276,7 +276,7 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
         if (fueMinijuego) return;
 
         // ============================================
-        // 👑 FILTRO PRIMARY (comparación inteligente)
+        // 👑 FILTRO PRIMARY (comparación robusta)
         // ============================================
         if (isGroup) {
             try {
@@ -288,24 +288,58 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
                 const config = primaryDb[jid];
 
                 if (config?.activo) {
-                    const miNumero = soloNumeroHandler(botJid);
+                    // Resolver mi propio JID a todos sus números posibles
+                    const misJids = [botJid];
+                    const misNumeros = new Set();
                     
-                    // Comparar contra todos los JIDs y números guardados
-                    const jidsCompatibles = config.jidsCompatibles || [];
-                    const numerosCompatibles = config.numerosCompatibles || [config.botNumero];
+                    const miNumBase = soloNumeroHandler(botJid);
+                    if (miNumBase) misNumeros.add(miNumBase);
+                    
+                    // Si mi JID es LID, intentar resolver a PN
+                    if (botJid?.endsWith('@lid')) {
+                        try {
+                            if (sock?.signalRepository?.lidMapper?.getPNForLid) {
+                                const pn = await sock.signalRepository.lidMapper.getPNForLid(botJid);
+                                if (pn) {
+                                    const pj = pn.includes('@') ? pn : pn + '@s.whatsapp.net';
+                                    misJids.push(pj);
+                                    const pnNum = soloNumeroHandler(pj);
+                                    if (pnNum) misNumeros.add(pnNum);
+                                }
+                            }
+                        } catch (e) { /* sin mapeo */ }
+                    }
+                    
+                    // Si mi JID es PN, también considerar versión @lid
+                    if (botJid?.endsWith('@s.whatsapp.net')) {
+                        misJids.push(botJid.replace('@s.whatsapp.net', '@lid'));
+                    }
+                    
+                    // Lo que guardó el primario
+                    const jidsPrimario = config.jidsCompatibles || [];
+                    const numerosPrimario = config.numerosCompatibles || (config.botNumero ? [config.botNumero] : []);
                     
                     let yoSoyPrimario = false;
                     
-                    // ¿Coincide mi JID con alguno guardado?
-                    if (jidsCompatibles.includes(botJid)) yoSoyPrimario = true;
+                    // ¿Alguno de mis JIDs coincide con los del primario?
+                    for (const miJid of misJids) {
+                        if (jidsPrimario.includes(miJid)) {
+                            yoSoyPrimario = true;
+                            break;
+                        }
+                    }
                     
-                    // ¿Coincide mi número con alguno guardado?
+                    // ¿Alguno de mis números coincide con los del primario?
                     if (!yoSoyPrimario) {
-                        for (const num of numerosCompatibles) {
-                            if (String(num).replace(/\D/g, '') === miNumero) {
-                                yoSoyPrimario = true;
-                                break;
+                        for (const miNum of misNumeros) {
+                            for (const numP of numerosPrimario) {
+                                const limpioP = String(numP).replace(/\D/g, '');
+                                if (limpioP && limpioP === miNum) {
+                                    yoSoyPrimario = true;
+                                    break;
+                                }
                             }
+                            if (yoSoyPrimario) break;
                         }
                     }
                     
