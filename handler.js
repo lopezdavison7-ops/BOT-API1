@@ -289,16 +289,21 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
 
                 if (config?.activo && config?.botNumero) {
                     const miNumero = soloNumeroHandler(botJid);
-                    const primarioNumero = String(config.botNumero).replace(/\D/g, '');
+                    const primarioNumero = config.botNumero;
+
+                    console.log('[PRIMARY] Mi número:', miNumero, '| Primario:', primarioNumero);
 
                     if (miNumero !== primarioNumero) {
-                        const excepcion = ['setprimary', 'primario', 'setprimario', 'primary'];
-                        if (!excepcion.includes(nombreComando)) {
+                        const comandosExcepcion = ['setprimary', 'primario', 'setprimario', 'primary'];
+                        if (!comandosExcepcion.includes(nombreComando)) {
+                            console.log('[PRIMARY] 🤫 No soy primario, me callo');
                             return;
                         }
                     }
                 }
-            } catch (e) { /* sigue normal */ }
+            } catch (e) {
+                console.error('[PRIMARY] Error:', e?.message || e);
+            }
         }
         // ============================================
         // EJECUTAR COMANDO
