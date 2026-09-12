@@ -164,6 +164,16 @@ export default {
         // ============================================
         // SET — este bot se auto-asigna como primario
         // ============================================
+        // Si ya hay uno activo, preguntar si quiere sobrescribir
+        if (db[grupoJid]?.activo) {
+            const anteriorNum = db[grupoJid].botNumero || '?';
+            const miNum = soloNumero(sock.user?.id || botJid);
+            
+            if (anteriorNum === miNum) {
+                return await responder.texto('ℹ️ Ya eres el primario de este grupo.\nUsa .setprimary off para quitarte.');
+            }
+        }
+        
         const miJid = sock.user?.id || botJid || msg.key.remoteJid;
         const resuelto = await resolverJids(sock, miJid);
         const botNumero = resuelto.numeros[0] || soloNumero(miJid);
@@ -183,8 +193,8 @@ export default {
             text:
                 '╭━━〔 👑 𝐒𝐄𝐓𝐏𝐑𝐈𝐌𝐀𝐑𝐘 〕━━⬣\n' +
                 '┃\n' +
-                '┃ ✅ Subbot primario ACTIVADO\n' +
-                '┃ en ESTE grupo\n' +
+                '┃ ✅ Soy el subbot PRIMARIO\n' +
+                '┃ de ESTE grupo\n' +
                 '┃\n' +
                 '┃ 👤 Bot: +' + botNumero + '\n' +
                 '┃ Por: ' + quienSoy + '\n' +
