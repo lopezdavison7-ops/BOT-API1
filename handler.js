@@ -276,24 +276,43 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
         if (fueMinijuego) return;
 
         // ============================================
-        // 👑 FILTRO PRIMARY (solo en grupos)
-        // Si este grupo tiene un subbot primario, solo ese responde
+        // 👑 FILTRO PRIMARY (comparación inteligente)
         // ============================================
         if (isGroup) {
             try {
-                const primaryDb = leerPrimary();
+                const primaryDb = JSON.parse(
+                    fs.existsSync(RUTA_PRIMARY)
+                        ? fs.readFileSync(RUTA_PRIMARY, 'utf8')
+                        : '{}'
+                );
                 const config = primaryDb[jid];
 
-                if (config?.activo && config?.botNumero) {
+                if (config?.activo) {
                     const miNumero = soloNumeroHandler(botJid);
-                    const primarioNumero = String(config.botNumero).replace(/\D/g, '');
-
-                    // Si yo NO soy el primario, me quedo callado
-                    if (miNumero !== primarioNumero) {
-                        // Excepción: comandos de control del primario siempre responden
+                    
+                    // Comparar contra todos los JIDs y números guardados
+                    const jidsCompatibles = config.jidsCompatibles || [];
+                    const numerosCompatibles = config.numerosCompatibles || [config.botNumero];
+                    
+                    let yoSoyPrimario = false;
+                    
+                    // ¿Coincide mi JID con alguno guardado?
+                    if (jidsCompatibles.includes(botJid)) yoSoyPrimario = true;
+                    
+                    // ¿Coincide mi número con alguno guardado?
+                    if (!yoSoyPrimario) {
+                        for (const num of numerosCompatibles) {
+                            if (String(num).replace(/\D/g, '') === miNumero) {
+                                yoSoyPrimario = true;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    if (!yoSoyPrimario) {
                         const comandosExcepcion = ['setprimary', 'primario', 'setprimario', 'primary'];
                         if (!comandosExcepcion.includes(nombreComando)) {
-                            return;
+                            return; // 🤫 No soy el primario, me callo
                         }
                     }
                 }
@@ -301,7 +320,6 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
                 console.error('[PRIMARY] Error en filtro:', e?.message || e);
             }
         }
-
         // ============================================
         // EJECUTAR COMANDO
         // ============================================
