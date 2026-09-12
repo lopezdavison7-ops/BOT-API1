@@ -1,12 +1,6 @@
 // commands/owner/setprimary.js
 // ============================================================
-// BOT-API — SETPRIMARY (owner + admins)
-// ============================================================
-// .setprimary @subbot      → lo marca como PRIMARIO
-// .setprimary 521551234567 → por número
-// (responder mensaje)      → .setprimary
-// .setprimary off          → desactiva el primario
-// .setprimary status       → ver cuál es el primario
+// BOT-API — SETPRIMARY (owner + admins) con detección manual
 // ============================================================
 import fs from 'fs';
 import path from 'path';
@@ -27,19 +21,56 @@ function guardar(db) {
     fs.writeFileSync(RUTA_PRIMARY, JSON.stringify(db, null, 2), 'utf8');
 }
 
-// ---------- Obtener target (mención / respuesta / número) ----------
+// ---------- Detallar JID ----------
+function jidUsuario(msg) {
+    return msg.key.participant || msg.key.senderPn || msg.key.participantAlt || msg.key.remoteJid;
+}
+function soloNumero(jid) {
+    return String(jid || '').split('@')[0].split(':')[0].replace(/\D/g, '');
+}
+
+// ---------- Detectar si es admin (multi-método) ----------
+async function esAdmin(sock, msg, grupoJid) {
+    const usuarioJid = jidUsuario(msg);
+    const numeroUsuario = soloNumero(usuarioJid);
+
+    // Método 1: lib/grupos.js
+    try {
+        const permiso = await verificarPermisosAdmin(sock, msg, grupoJid);
+        if (permiso?.ok) return true;
+    } catch (e) { /* sigue */ }
+
+    // Método 2: groupMetadata manual
+    try {
+        const meta = await sock.groupMetadata(grupoJid);
+        const participantes = meta?.participants || [];
+
+        for (const p of participantes) {
+            const numeroP = soloNumero(p.id);
+
+            // Comparar por número limpio
+            if (numeroP === numeroUsuario) {
+                if (p.admin === 'admin' || p.admin === 'superadmin') return true;
+                return false; // es participante pero no admin
+            }
+        }
+    } catch (e) {
+        console.error('[SETPRIMARY] Error leyendo metadata del grupo:', e?.message);
+    }
+
+    return false;
+}
+
+// ---------- Obtener target ----------
 function obtenerTarget(msg, argumento) {
     const ctx = msg.message?.extendedTextMessage?.contextInfo;
 
-    // 1) Respuesta a un mensaje
     const citado = ctx?.participant || ctx?.remoteJid;
     if (citado && !citado.endsWith('@g.us')) return { jid: citado, tipo: 'respuesta' };
 
-    // 2) Mención
     const mencionados = ctx?.mentionedJid || [];
     if (mencionados.length > 0) return { jid: mencionados[0], tipo: 'mencion' };
 
-    // 3) Número escrito
     if (argumento) {
         const numero = String(argumento).replace(/[^0-9]/g, '');
         if (numero.length >= 8) return { jid: numero + '@s.whatsapp.net', tipo: 'numero' };
@@ -58,20 +89,18 @@ export default {
     uso: '.setprimary [@subbot|numero] · .setprimary off · .setprimary status',
     ejecutar: async ({ sock, msg, argumento, responder }) => {
 
+        const grupoJid = msg.key.remoteJid;
+        const esGrupo = grupoJid?.endsWith('@g.us');
+
         // ============================================
-        // 🔒 PERMISOS: OWNER O ADMIN DEL GRUPO
+        // 🔒 PERMISOS: OWNER siempre, ADMIN solo en grupos
         // ============================================
         let tienePermiso = esOwner(msg);
         let quienSoy = '👑 OWNER';
 
-        if (!tienePermiso) {
-            try {
-                const permiso = await verificarPermisosAdmin(sock, msg, msg.key.remoteJid);
-                tienePermiso = Boolean(permiso?.ok);
-                if (tienePermiso) quienSoy = '🛡️ ADMIN';
-            } catch (e) {
-                console.error('[SETPRIMARY] Error verificando admin:', e?.message || e);
-            }
+        if (!tienePermiso && esGrupo) {
+            tienePermiso = await esAdmin(sock, msg, grupoJid);
+            if (tienePermiso) quienSoy = '🛡️ ADMIN';
         }
 
         if (!tienePermiso) {
@@ -117,7 +146,7 @@ export default {
         }
 
         // ============================================
-        // STATUS — ver primario actual
+        // STATUS
         // ============================================
         if (accion === 'status' || accion === 'estado' || accion === 'info') {
             if (!db.activo) {
@@ -179,7 +208,7 @@ export default {
         db.activadoPor = quienSoy;
         guardar(db);
 
-        await sock.sendMessage(msg.key.remoteJid, {
+        await sock.sendMessage(grupoJid, {
             text:
                 '╭━━〔 👑 𝐒𝐄𝐓𝐏𝐑𝐈𝐌𝐀𝐑𝐘 〕━━⬣\n' +
                 '┃\n' +
