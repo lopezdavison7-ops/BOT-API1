@@ -276,7 +276,7 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
         if (fueMinijuego) return;
 
         // ============================================
-        // 👑 FILTRO PRIMARY (con logs de debug)
+        // 👑 FILTRO PRIMARY
         // ============================================
         if (isGroup) {
             try {
@@ -288,52 +288,21 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
                 const config = primaryDb[jid];
 
                 if (config?.activo) {
-                    // Mi identidad
-                    const miNumBase = soloNumeroHandler(botJid);
-                    const numerosPrimario = config.numerosCompatibles || (config.botNumero ? [config.botNumero] : []);
-                    const jidsPrimario = config.jidsCompatibles || [];
-                    
-                    console.log('[PRIMARY DEBUG] ==========');
-                    console.log('[PRIMARY DEBUG] Grupo:', jid);
-                    console.log('[PRIMARY DEBUG] Mi botJid:', botJid);
-                    console.log('[PRIMARY DEBUG] Mi número:', miNumBase);
-                    console.log('[PRIMARY DEBUG] Primario JIDs:', jidsPrimario);
-                    console.log('[PRIMARY DEBUG] Primario números:', numerosPrimario);
-                    console.log('[PRIMARY DEBUG] Comando:', nombreComando);
-                    
-                    let yoSoyPrimario = false;
-                    
-                    // ¿Coincide mi JID?
-                    if (jidsPrimario.includes(botJid)) {
-                        yoSoyPrimario = true;
-                        console.log('[PRIMARY DEBUG] ✓ Coincidencia por JID');
-                    }
-                    
-                    // ¿Coincide mi número?
-                    if (!yoSoyPrimario) {
-                        for (const numP of numerosPrimario) {
-                            const limpioP = String(numP).replace(/\D/g, '');
-                            if (limpioP === miNumBase) {
-                                yoSoyPrimario = true;
-                                console.log('[PRIMARY DEBUG] ✓ Coincidencia por número:', limpioP);
-                                break;
-                            }
-                        }
-                    }
-                    
-                    console.log('[PRIMARY DEBUG] ¿Yo soy primario?', yoSoyPrimario);
-                    console.log('[PRIMARY DEBUG] ==========');
-                    
-                    if (!yoSoyPrimario) {
+                    const miNumero = soloNumeroHandler(botJid);
+                    const primarioNumero = soloNumeroHandler(config.botJid || config.botNumero);
+
+                    console.log('[PRIMARY] Mi número:', miNumero, '| Primario:', primarioNumero, '| Comando:', nombreComando);
+
+                    if (miNumero !== primarioNumero) {
                         const comandosExcepcion = ['setprimary', 'primario', 'setprimario', 'primary'];
                         if (!comandosExcepcion.includes(nombreComando)) {
-                            console.log('[PRIMARY DEBUG] 🤫 Me quedo callado');
+                            console.log('[PRIMARY] 🤫 No soy primario, me callo');
                             return;
                         }
                     }
                 }
             } catch (e) {
-                console.error('[PRIMARY] Error en filtro:', e?.message || e);
+                console.error('[PRIMARY] Error:', e?.message || e);
             }
         }
         // ============================================
