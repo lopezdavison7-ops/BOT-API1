@@ -287,23 +287,18 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
                 );
                 const config = primaryDb[jid];
 
-                if (config?.activo) {
+                if (config?.activo && config?.botNumero) {
                     const miNumero = soloNumeroHandler(botJid);
-                    const primarioNumero = soloNumeroHandler(config.botJid || config.botNumero);
-
-                    console.log('[PRIMARY] Mi número:', miNumero, '| Primario:', primarioNumero, '| Comando:', nombreComando);
+                    const primarioNumero = String(config.botNumero).replace(/\D/g, '');
 
                     if (miNumero !== primarioNumero) {
-                        const comandosExcepcion = ['setprimary', 'primario', 'setprimario', 'primary'];
-                        if (!comandosExcepcion.includes(nombreComando)) {
-                            console.log('[PRIMARY] 🤫 No soy primario, me callo');
+                        const excepcion = ['setprimary', 'primario', 'setprimario', 'primary'];
+                        if (!excepcion.includes(nombreComando)) {
                             return;
                         }
                     }
                 }
-            } catch (e) {
-                console.error('[PRIMARY] Error:', e?.message || e);
-            }
+            } catch (e) { /* sigue normal */ }
         }
         // ============================================
         // EJECUTAR COMANDO
