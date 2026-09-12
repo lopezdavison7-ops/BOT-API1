@@ -38,61 +38,13 @@ async function esAdmin(sock, msg, grupoJid) {
     return false;
 }
 
-// Resuelve LID a número real si es posible
-async function resolverJids(sock, jid) {
-    const jids = [jid];
-    const numeros = new Set();
-    
-    // Número del jid
-    const num = soloNumero(jid);
-    if (num) numeros.add(num);
-    
-    // Si es LID, intenta resolver a PN real
-    if (jid.endsWith('@lid')) {
-        try {
-            if (sock?.signalRepository?.lidMapper?.getPNForLid) {
-                const pn = await sock.signalRepository.lidMapper.getPNForLid(jid);
-                if (pn) {
-                    const pj = pn.includes('@') ? pn : pn + '@s.whatsapp.net';
-                    jids.push(pj);
-                    const pnNum = soloNumero(pj);
-                    if (pnNum) numeros.add(pnNum);
-                }
-            }
-        } catch (e) { /* sin mapeo */ }
-    }
-    
-    // Si es PN, también guarda la versión @lid (por si acaso)
-    if (jid.endsWith('@s.whatsapp.net')) {
-        jids.push(jid.replace('@s.whatsapp.net', '@lid'));
-    }
-    
-    return {
-        jids: [...new Set(jids)],
-        numeros: [...numeros]
-    };
-}
-
-function obtenerTarget(msg, argumento) {
-    const ctx = msg.message?.extendedTextMessage?.contextInfo;
-    const citado = ctx?.participant || ctx?.remoteJid;
-    if (citado && !citado.endsWith('@g.us')) return { jid: citado, tipo: 'respuesta' };
-    const mencionados = ctx?.mentionedJid || [];
-    if (mencionados.length > 0) return { jid: mencionados[0], tipo: 'mencion' };
-    if (argumento) {
-        const numero = String(argumento).replace(/[^0-9]/g, '');
-        if (numero.length >= 8) return { jid: numero + '@s.whatsapp.net', tipo: 'numero' };
-    }
-    return null;
-}
-
 export default {
     nombre: 'setprimary',
     categoria: 'Owner',
     alias: ['primario', 'setprimario', 'primary'],
     descripcion: 'Marca este bot como primario en el grupo',
     uso: '.setprimary · .setprimary off · .setprimary status',
-    ejecutar: async ({ sock, msg, argumento, responder }) => {
+    ejecutar: async ({ sock, msg, argumento, responder, botJid }) => {
 
         const grupoJid = msg.key.remoteJid;
         if (!grupoJid?.endsWith('@g.us')) {
@@ -126,16 +78,13 @@ export default {
             if (!db[grupoJid]?.activo) {
                 return await responder.texto('⚠️ No hay subbot primario en este grupo.');
             }
-            const anterior = db[grupoJid].botNumero || '?';
             delete db[grupoJid];
             guardar(db);
             return await responder.texto(
                 '╭━━〔 🔴 𝐒𝐄𝐓𝐏𝐑𝐈𝐌𝐀𝐑𝐘 〕━━⬣\n' +
                 '┃\n' +
                 '┃ ✅ Subbot primario DESACTIVADO\n' +
-                '┃\n' +
-                '┃ 👤 Era: +' + anterior + '\n' +
-                '┃ Por: ' + quienSoy + '\n' +
+                '┃ Ahora todos los bots responden\n' +
                 '┃\n' +
                 '╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣'
             );
@@ -153,7 +102,6 @@ export default {
                 '╭━━〔 👑 𝐏𝐑𝐈𝐌𝐀𝐑𝐘 〕━━⬣\n' +
                 '┃\n' +
                 '┃ ✅ Subbot primario ACTIVO\n' +
-                '┃\n' +
                 '┃ 👤 Bot: +' + (config.botNumero || '?') + '\n' +
                 (config.activadoPor ? '┃ Por: ' + config.activadoPor + '\n' : '') +
                 '┃\n' +
@@ -162,28 +110,19 @@ export default {
         }
 
         // ============================================
-        // SET — este bot se auto-asigna como primario
+        // SET — este bot se auto-asigna
         // ============================================
-        // Si ya hay uno activo, preguntar si quiere sobrescribir
-        if (db[grupoJid]?.activo) {
-            const anteriorNum = db[grupoJid].botNumero || '?';
-            const miNum = soloNumero(sock.user?.id || botJid);
-            
-            if (anteriorNum === miNum) {
-                return await responder.texto('ℹ️ Ya eres el primario de este grupo.\nUsa .setprimary off para quitarte.');
-            }
-        }
-        
-        const miJid = sock.user?.id || botJid || msg.key.remoteJid;
-        const resuelto = await resolverJids(sock, miJid);
-        const botNumero = resuelto.numeros[0] || soloNumero(miJid);
+        const miJid = sock.user?.id || botJid;
+        const miNumero = soloNumero(miJid);
+
+        console.log('[SETPRIMARY] Mi botJid:', miJid);
+        console.log('[SETPRIMARY] Mi número:', miNumero);
+        console.log('[SETPRIMARY] Grupo:', grupoJid);
 
         db[grupoJid] = {
             activo: true,
             botJid: miJid,
-            botNumero,
-            jidsCompatibles: resuelto.jids,
-            numerosCompatibles: resuelto.numeros,
+            botNumero: miNumero,
             activadoPor: quienSoy,
             setEn: Date.now()
         };
@@ -196,13 +135,10 @@ export default {
                 '┃ ✅ Soy el subbot PRIMARIO\n' +
                 '┃ de ESTE grupo\n' +
                 '┃\n' +
-                '┃ 👤 Bot: +' + botNumero + '\n' +
+                '┃ 👤 Bot: +' + miNumero + '\n' +
                 '┃ Por: ' + quienSoy + '\n' +
                 '┃\n' +
                 '┃ 🎯 Solo YO respondo aquí\n' +
-                '┃ Los demás bots se quedan callados\n' +
-                '┃\n' +
-                '┃ Apágalo con: .setprimary off\n' +
                 '┃\n' +
                 '╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣'
         }, { quoted: msg });
