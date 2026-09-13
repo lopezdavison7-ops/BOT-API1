@@ -35,12 +35,12 @@ const TRUCOS = {
 
 // ---------- EMPLEOS ----------
 const EMPLEOS = {
-    granjero:   { nombre: 'Granjero', emoji: '🧑‍', sueldo: 120, etapaMin: 1 },
-    policia:    { nombre: 'Policía', emoji: '👮‍️', sueldo: 150, etapaMin: 2 },
+    granjero:   { nombre: 'Granjero', emoji: '🧑‍🌾', sueldo: 120, etapaMin: 1 },
+    policia:    { nombre: 'Policía', emoji: '👮‍♂️', sueldo: 150, etapaMin: 2 },
     profesor:   { nombre: 'Profesor', emoji: '🧑‍🏫', sueldo: 170, etapaMin: 2 },
     bombero:    { nombre: 'Bombero', emoji: '🚒', sueldo: 180, etapaMin: 2 },
     chef:       { nombre: 'Chef', emoji: '👨‍🍳', sueldo: 200, etapaMin: 3 },
-    doctor:     { nombre: 'Doctor', emoji: '🧑‍️', sueldo: 250, etapaMin: 3 },
+    doctor:     { nombre: 'Doctor', emoji: '🧑‍⚕️', sueldo: 250, etapaMin: 3 },
     youtuber:   { nombre: 'Youtuber', emoji: '🎥', sueldo: 300, etapaMin: 3 },
     astronauta: { nombre: 'Astronauta', emoji: '🧑‍🚀', sueldo: 400, etapaMin: 4 }
 };
@@ -70,7 +70,47 @@ function edadDias(m) {
     return Math.max(0, Math.floor((Date.now() - m.nacido) / DIA_MS));
 }
 
-// ---------- CRECIMIENTO DIARIO (fix del bug de edad) ----------
+// ---------- FIX: encontrar usuario por LID o PN ----------
+function posiblesJids(jid) {
+    const lista = [jid];
+    if (jid.endsWith('@lid')) lista.push(jid.replace('@lid', '@s.whatsapp.net'));
+    if (jid.endsWith('@s.whatsapp.net')) lista.push(jid.replace('@s.whatsapp.net', '@lid'));
+    const sinDispositivo = jid.split('@')[0].split(':')[0] + '@' + (jid.includes('@lid') ? 'lid' : 's.whatsapp.net');
+    if (!lista.includes(sinDispositivo)) lista.push(sinDispositivo);
+    return lista;
+}
+
+function cobrar(jid, monto) {
+    const eco = leer(RUTA_ECONOMIA, {});
+    let usuarioJid = null;
+    for (const j of posiblesJids(jid)) {
+        if (eco[j]) { usuarioJid = j; break; }
+    }
+    if (!usuarioJid) return { ok: false, msg: 'No tienes cuenta. Usa .perfil primero.' };
+    const u = eco[usuarioJid];
+    const mano = num(u.dinero), banco = num(u.banco);
+    if (mano + banco < monto) return { ok: false, msg: 'No te alcanza (' + fmt(mano + banco) + ' vs ' + fmt(monto) + ').' };
+    let rest = monto;
+    if (mano >= rest) { u.dinero = mano - rest; }
+    else { rest -= mano; u.dinero = 0; u.banco = banco - rest; }
+    eco[usuarioJid] = u;
+    guardar(RUTA_ECONOMIA, eco);
+    return { ok: true };
+}
+
+function darOro(jid, monto) {
+    const eco = leer(RUTA_ECONOMIA, {});
+    let usuarioJid = null;
+    for (const j of posiblesJids(jid)) {
+        if (eco[j]) { usuarioJid = j; break; }
+    }
+    if (!usuarioJid) usuarioJid = jid;
+    if (!eco[usuarioJid]) eco[usuarioJid] = { dinero: 0, banco: 0, personajes: [], items: [] };
+    eco[usuarioJid].dinero = num(eco[usuarioJid].dinero) + monto;
+    guardar(RUTA_ECONOMIA, eco);
+}
+
+// ---------- CRECIMIENTO DIARIO ----------
 function aplicarCrecimiento(m) {
     const hoy = new Date().toISOString().slice(0, 10);
     if (!m.ultimoDia) { m.ultimoDia = hoy; return ''; }
@@ -91,30 +131,10 @@ function decaimiento(m) {
         m.felicidad = Math.max(0, m.felicidad - Math.floor(horas * 8));
         m.energia = Math.max(0, m.energia - Math.floor(horas * 5));
         if (m.hambre < 20 || m.felicidad < 20) m.salud = Math.max(0, m.salud - Math.floor(horas * 3));
-        if (m.salud <= 0 && m.vivo) { m.vivo = false; }
+        if (m.salud <= 0 && m.vivo) m.vivo = false;
     }
     m.ultimoUpdate = ahora;
     return m;
-}
-
-function cobrar(jid, monto) {
-    const eco = leer(RUTA_ECONOMIA, {});
-    const u = eco[jid];
-    if (!u) return { ok: false, msg: 'No tienes cuenta. Usa .perfil primero.' };
-    const mano = num(u.dinero), banco = num(u.banco);
-    if (mano + banco < monto) return { ok: false, msg: 'No te alcanza (' + fmt(mano + banco) + ' vs ' + fmt(monto) + ').' };
-    let rest = monto;
-    if (mano >= rest) { u.dinero = mano - rest; }
-    else { rest -= mano; u.dinero = 0; u.banco = banco - rest; }
-    eco[jid] = u;
-    guardar(RUTA_ECONOMIA, eco);
-    return { ok: true };
-}
-function darOro(jid, monto) {
-    const eco = leer(RUTA_ECONOMIA, {});
-    if (!eco[jid]) eco[jid] = { dinero: 0, banco: 0 };
-    eco[jid].dinero = num(eco[jid].dinero) + monto;
-    guardar(RUTA_ECONOMIA, eco);
 }
 
 function estadoTexto(m) {
@@ -136,7 +156,7 @@ export default {
     descripcion: 'Mascota virtual con trucos, empleos y crecimiento diario',
     uso: '.mascota [acción] · .mascota trucos · .mascota empleo',
     ejecutar: async ({ msg, argumento, responder }) => {
-        const jid = msg.key.participant || msg.key.remoteJid;
+        const jid = msg.key.participant || msg.key.senderPn || msg.key.participantAlt || msg.key.remoteJid;
         const tokens = String(argumento || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
         const accion = tokens[0] || '';
 
@@ -181,7 +201,7 @@ export default {
             }
 
             await responder.texto(
-                '╭━━〔  𝐌𝐈 𝐌𝐀𝐒𝐎𝐓𝐀 〕━━⬣\n' +
+                '╭━━〔 🐾 𝐌𝐈 𝐌𝐀𝐒𝐂𝐎𝐓𝐀 〕━━⬣\n' +
                 '┃\n' +
                 '┃ ' + etapa.emoji + ' *' + m.nombre + '* (' + etapa.nombre + ')\n' +
                 '┃ 🎂 Edad: ' + edadDias(m) + ' día(s)\n' +
@@ -222,7 +242,7 @@ export default {
             };
             db[jid] = nuevo; guardar(RUTA_MASCOTAS, db);
             return await responder.texto(
-                '╭━━〔  𝐀𝐃𝐎𝐏𝐓𝐀𝐃𝐀 〕━━⬣\n' +
+                '╭━━〔 🐣 𝐀𝐃𝐎𝐏𝐓𝐀𝐃𝐀 〕━━⬣\n' +
                 '┃\n' +
                 '┃ 🎉 Adoptaste a *' + nuevo.nombre + '*\n' +
                 '┃ 💰 -' + fmt(COSTOS.adoptar) + '\n' +
@@ -245,7 +265,7 @@ export default {
         // ============================================
         // LISTA DE TRUCOS
         // ============================================
-        if (accion === 'trucos' || accion === 'trucos' || accion === 'tricks') {
+        if (accion === 'trucos' || accion === 'tricks') {
             const lista = Object.entries(TRUCOS).map(([k, v]) => '┃ ' + v.emoji + ' .mascota ' + k).join('\n');
             db[jid] = m; guardar(RUTA_MASCOTAS, db);
             return await responder.texto(
@@ -279,11 +299,10 @@ export default {
             m.felicidad = Math.min(100, m.felicidad + t.felicidad);
             m.xp += t.xp;
             db[jid] = m; guardar(RUTA_MASCOTAS, db);
-
             return await responder.texto(
                 '╭━━〔 🎪 𝐓𝐑𝐔𝐂𝐎: ' + accion.toUpperCase() + ' 〕━━⬣\n' +
                 '┃\n' +
-                '┃ 🎬 ' + t.frames.join('\n┃  ') + '\n' +
+                '┃ 🎬 ' + t.frames.join('\n┃    ') + '\n' +
                 '┃\n' +
                 '┃ ' + etapa.emoji + ' *' + m.nombre + '* lo hizo perfecto\n' +
                 '┃ ⭐ +' + t.xp + ' XP · 😊 +' + t.felicidad + ' · ⚡ -' + t.energia + '\n' +
@@ -299,7 +318,6 @@ export default {
         if (accion === 'empleo' || accion === 'trabajo' || accion === 'job') {
             const cual = tokens[1] || '';
 
-            // Dejar empleo
             if (cual === 'dejar' || cual === 'renunciar') {
                 if (!m.empleo) { db[jid] = m; guardar(RUTA_MASCOTAS, db); return await responder.texto('⚠️ Tu mascota no tiene empleo.'); }
                 const viejo = EMPLEOS[m.empleo.tipo];
@@ -308,7 +326,6 @@ export default {
                 return await responder.texto('💼 *' + m.nombre + '* renunció a ' + viejo.emoji + ' ' + viejo.nombre + '.');
             }
 
-            // Ver empleo actual + lista
             if (!cual) {
                 const actual = m.empleo ? EMPLEOS[m.empleo.tipo] : null;
                 const lista = Object.entries(EMPLEOS).map(([k, v]) =>
@@ -330,7 +347,6 @@ export default {
                 );
             }
 
-            // Tomar empleo
             const emp = EMPLEOS[cual];
             if (!emp) { db[jid] = m; guardar(RUTA_MASCOTAS, db); return await responder.texto('❌ Empleo no válido. Usa .mascota empleo para ver la lista.'); }
             if (idxEtapa < emp.etapaMin) {
@@ -347,14 +363,14 @@ export default {
                 '┃\n' +
                 '┃ Cobra con: .mascota cobrar\n' +
                 '┃\n' +
-                '╰━━〔 ⚡ 𝐁𝐎-𝐀𝐏𝐈 ⚡ 〕━━⬣'
+                '╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣'
             );
         }
 
         // ============================================
         // COBRAR SUELDO
         // ============================================
-        if (accion === 'cobrar' || accion === 'sueldo' || accion === 'cobrarsueldo') {
+        if (accion === 'cobrar' || accion === 'sueldo') {
             if (!m.empleo) { db[jid] = m; guardar(RUTA_MASCOTAS, db); return await responder.texto('❌ Tu mascota no tiene empleo. Usa .mascota empleo'); }
             const emp = EMPLEOS[m.empleo.tipo];
             const dias = Math.floor((Date.now() - (m.empleo.ultimoCobro || Date.now())) / DIA_MS);
@@ -377,7 +393,7 @@ export default {
                 '┃\n' +
                 '┃ (máx 7 días acumulables)\n' +
                 '┃\n' +
-                '╰━━〔  𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣'
+                '╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣'
             );
         }
 
