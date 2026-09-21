@@ -34,7 +34,7 @@ const REACCIONES = {
     dramatic:   { alias: ['dramatico'],               con: 'hizo un drama por',           solo: 'esta dramatic@',               emoji: '🎭' },
     drunk:      { alias: ['borracho'],                con: 'esta borrach@ por',           solo: 'esta borrach@',                emoji: '🍺' },
     cold:       { alias: ['frio'],                    con: 'tiene frio junt@ a',          solo: 'tiene frio',                   emoji: '🥶' },
-    impregnate: { alias: ['prenar', 'embarazar'],     con: 'preño a',                     solo: 'se preño a si mism@',          emoji: '🤰' },
+    preg: { alias: ['preñar', 'embarazar'],     con: 'preño a',                     solo: 'se preño a si mism@',          emoji: '🤰' },
     kisscheek:  { alias: ['besoenmejilla'],           con: 'le beso la mejilla a',        solo: 'quiere un beso en la mejilla', emoji: '😚' },
     sing:       { alias: ['cantar'],                  con: 'le canto a',                  solo: 'canta solit@',                 emoji: '🎤' },
     tickle:     { alias: ['cosquillas'],              con: 'le hizo cosquillas a',        solo: 'quiere cosquillas',            emoji: '🖐️' },
