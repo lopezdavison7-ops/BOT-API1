@@ -1,729 +1,233 @@
+// commands/interaction/reacciones.js — 🎭 Reacciones anime (SOLO AlyaCore)
 // ============================================================
-// BOT-API
-// COMANDO: REACCION
-// ============================================================
-// Reacciones GIF usando database/anime.json.
-//
-// Ejemplos:
-// .hug
-// .hug @usuario
-// .hug respondiendo un mensaje
-// .kiss @usuario
-// .pat @usuario
-//
-// Compatible con:
-// - Nueva estructura recursiva de comandos
-// - Baileys 7
-// - Node.js moderno
+// Fuente única: api.alyacore.xyz/sfw/interaction
+// 67 reacciones oficiales de AlyaCore
 // ============================================================
 
-import fs from 'fs';
-import path from 'path';
+const ALYA_BASE = 'https://api.alyacore.xyz/sfw/interaction';
+const ALYA_KEY = 'oboe';
 
-// ============================================================
-// CONFIGURACIÓN
-// ============================================================
-
-const ANIME_FILE = path.join(
-    process.cwd(),
-    'database',
-    'anime.json'
-);
-
-// ============================================================
-// COMANDOS DISPONIBLES
-// ============================================================
-
-const REACCIONES = [
-    'hug',
-    'kiss',
-    'pat',
-    'slap',
-    'poke',
-    'cuddle',
-    'wave',
-    'smile',
-    'dance',
-    'cry',
-    'happy',
-    'angry',
-    'love',
-    'bite',
-    'blush',
-    'highfive',
-    'handhold',
-    'feed',
-    'bonk',
-    'yeet',
-    'wink',
-    'stare',
-    'tickle',
-    'punch',
-    'kill'
-];
-
-// ============================================================
-// OBTENER COMANDO REAL
-// ============================================================
-
-function obtenerTipo(msg) {
-    const texto =
-        msg?.message?.conversation ||
-        msg?.message?.extendedTextMessage?.text ||
-        '';
-
-    if (!texto) {
-        return 'hug';
-    }
-
-    const partes =
-        texto
-            .trim()
-            .split(/\s+/);
-
-    const comando =
-        partes[0]
-            ?.replace(/^\./, '')
-            .toLowerCase();
-
-    return comando || 'hug';
+// ---------- BOLD UNICODE (𝐀𝐁𝐂) ----------
+function bold(texto) {
+    return String(texto).replace(/[A-Za-z]/g, c => {
+        const base = c <= 'Z' ? 0x1D400 - 65 : 0x1D41A - 97;
+        return String.fromCodePoint(base + c.charCodeAt(0));
+    });
 }
 
-// ============================================================
-// OBTENER AUTOR
-// ============================================================
+// ---------- CATÁLOGO: LAS 67 REACCIONES DE ALYACORE ----------
+const REACCIONES = {
+    peek:       { alias: ['chismear', 'fisgonear'],   con: 'esta fisgoneando a',          solo: 'chismea por ahi',              emoji: '👀' },
+    comfort:    { alias: ['consolar'],                con: 'consolo a',                   solo: 'necesita consuelo',            emoji: '🫂' },
+    thinkhard:  { alias: ['pensarfuerte'],            con: 'piensa demasiado en',         solo: 'piensa demasiado fuerte',      emoji: '🤯' },
+    curious:    { alias: ['curioso'],                 con: 'siente curiosidad por',       solo: 'esta curios@',                 emoji: '🧐' },
+    sniff:      { alias: ['oler', 'olfatear'],        con: 'olfateo a',                   solo: 'huele algo raro',              emoji: '👃' },
+    stare:      { alias: ['mirar', 'mirada'],         con: 'mira fijamente a',            solo: 'mira perdido en la nada',      emoji: '👀' },
+    trip:       { alias: ['viajar'],                  con: 'se fue de viaje con',         solo: 'se va de viaje',               emoji: '✈️' },
+    blowkiss:   { alias: ['besovolado'],              con: 'le mando un beso volado a',   solo: 'manda besitos al aire',        emoji: '💨' },
+    snuggle:    { alias: ['acurrucarse'],             con: 'se acurruco juntito con',     solo: 'quiere acurrucarse',           emoji: '🛌' },
+    angry:      { alias: ['enojado', 'furioso'],      con: 'esta furioso con',            solo: 'esta que trueno',              emoji: '😡' },
+    bleh:       { alias: ['lengua'],                  con: 'le saco la lengua a',         solo: 'bleh',                         emoji: '😝' },
+    bored:      { alias: ['aburrido'],                con: 'se aburrio con',              solo: 'esta aburrid@',                emoji: '😑' },
+    clap:       { alias: ['aplaudir', 'aplauso'],     con: 'le aplaudio a',               solo: 'aplaude solo',                 emoji: '👏' },
+    coffee:     { alias: ['cafe'],                    con: 'toma cafe pensando en',       solo: 'sorbe su cafecito',            emoji: '☕' },
+    dramatic:   { alias: ['dramatico'],               con: 'hizo un drama por',           solo: 'esta dramatic@',               emoji: '🎭' },
+    drunk:      { alias: ['borracho'],                con: 'esta borrach@ por',           solo: 'esta borrach@',                emoji: '🍺' },
+    cold:       { alias: ['frio'],                    con: 'tiene frio junt@ a',          solo: 'tiene frio',                   emoji: '🥶' },
+    impregnate: { alias: ['prenar', 'embarazar'],     con: 'preño a',                     solo: 'se preño a si mism@',          emoji: '🤰' },
+    kisscheek:  { alias: ['besoenmejilla'],           con: 'le beso la mejilla a',        solo: 'quiere un beso en la mejilla', emoji: '😚' },
+    sing:       { alias: ['cantar'],                  con: 'le canto a',                  solo: 'canta solit@',                 emoji: '🎤' },
+    tickle:     { alias: ['cosquillas'],              con: 'le hizo cosquillas a',        solo: 'quiere cosquillas',            emoji: '🖐️' },
+    scream:     { alias: ['gritar'],                  con: 'le grito a',                  solo: 'grito de la nada',             emoji: '😱' },
+    push:       { alias: ['empujar'],                 con: 'empujo a',                    solo: 'empujo el aire',               emoji: '🤜' },
+    nope:       { alias: ['nel'],                     con: 'le dijo que NO a',            solo: 'nope, ni de chiste',           emoji: '🙅' },
+    jump:       { alias: ['saltar'],                  con: 'salto con',                   solo: 'salta de la emocion',          emoji: '🦘' },
+    heat:       { alias: ['calor', 'caliente'],       con: 'suda la gota gorda por',      solo: 'esta que se derrite',          emoji: '🥵' },
+    gaming:     { alias: ['jugar', 'gamear'],         con: 'juega con',                   solo: 'esta gameando',                emoji: '🎮' },
+    draw:       { alias: ['dibujar'],                 con: 'dibuja a',                    solo: 'dibuja en su cuaderno',        emoji: '🎨' },
+    call:       { alias: ['llamar'],                  con: 'llama a',                     solo: 'hace una llamadita',           emoji: '📞' },
+    laugh:      { alias: ['reir', 'risa'],            con: 'se rio con',                  solo: 'se rie solo',                  emoji: '😂' },
+    love:       { alias: ['amar', 'amor'],            con: 'ama a',                       solo: 'se ama a si mism@',            emoji: '❤️' },
+    pout:       { alias: ['pucheros'],                con: 'le hizo pucheros a',          solo: 'hace pucheros',                emoji: '😡' },
+    punch:      { alias: ['punetazo', 'golpear'],     con: 'le dio un punetazo a',        solo: 'se golpeo solo',               emoji: '👊' },
+    run:        { alias: ['correr', 'huir'],          con: 'corrio hacia',                solo: 'corre sin destino',            emoji: '🏃' },
+    sad:        { alias: ['triste'],                  con: 'esta triste por',             solo: 'esta triste',                  emoji: '😔' },
+    scared:     { alias: ['miedo', 'asustar'],        con: 'se asusto de',                solo: 'se asusta solo',               emoji: '😨' },
+    seduce:     { alias: ['seducir'],                 con: 'intenta seducir a',           solo: 'modo seductor activado',       emoji: '😘' },
+    shy:        { alias: ['timido'],                  con: 'se puso timid@ con',          solo: 'se pone timid@',               emoji: '😳' },
+    sleep:      { alias: ['dormir', 'sueno'],         con: 'se durmio junto a',           solo: 'quiere dormir',                emoji: '😴' },
+    smoke:      { alias: ['fumar'],                   con: 'fuma pensando en',            solo: 'fuma tranquilo',               emoji: '🚬' },
+    spit:       { alias: ['escupir'],                 con: 'escupio a',                   solo: 'escupio al suelo',             emoji: '🤮' },
+    step:       { alias: ['pisar'],                   con: 'piso a',                      solo: 'camina sin mirar',             emoji: '👣' },
+    think:      { alias: ['pensar'],                  con: 'esta pensando en',            solo: 'piensa profundamente',         emoji: '🤔' },
+    walk:       { alias: ['caminar'],                 con: 'camina con',                  solo: 'camina solo',                  emoji: '🚶' },
+    hug:        { alias: ['abrazar', 'abrazo'],       con: 'quiere abrazar fuerte a',     solo: 'quiere un abrazo',             emoji: '🤗' },
+    kill:       { alias: ['matar'],                   con: 'quiere matar a',              solo: 'quiere autodestruirse',        emoji: '🔪' },
+    eat:        { alias: ['comer'],                   con: 'come frente a',               solo: 'esta comiendo',                emoji: '🍜' },
+    kiss:       { alias: ['besar', 'beso'],           con: 'quiere dar muchos besos a',   solo: 'quiere un beso',               emoji: '💋' },
+    wink:       { alias: ['guino'],                   con: 'le guino el ojo a',           solo: 'guina el ojo',                 emoji: '😜' },
+    pat:        { alias: ['acariciar', 'caricia'],    con: 'quiere acariciar a',          solo: 'quiere una caricia',           emoji: '🥰' },
+    happy:      { alias: ['feliz', 'alegre'],         con: 'esta feliz con',              solo: 'esta feliz de la vida',        emoji: '😊' },
+    bully:      { alias: ['molestar', 'bullyear'],    con: 'molesta sin parar a',         solo: 'hace bullying solo',           emoji: '😈' },
+    bite:       { alias: ['morder', 'mordida'],       con: 'mordio a',                    solo: 'se mordio solo',               emoji: '😬' },
+    blush:      { alias: ['sonrojo', 'sonrojarse'],   con: 'se sonrojo por',              solo: 'se sonrojo solit@',            emoji: '☺️' },
+    wave:       { alias: ['saludar', 'saludo'],       con: 'saludo a',                    solo: 'saluda al viento',             emoji: '👋' },
+    bath:       { alias: ['banar', 'bano'],           con: 'se bana junto a',             solo: 'se esta banando',              emoji: '🛁' },
+    smug:       { alias: ['presumido'],               con: 'miro con superioridad a',     solo: 'modo presumido activado',      emoji: '😏' },
+    smile:      { alias: ['sonreir', 'sonrisa'],      con: 'le sonrio a',                 solo: 'sonrie sin razon',             emoji: '😄' },
+    highfive:   { alias: ['chocar', 'chocala'],       con: 'choco los cinco con',         solo: 'choca los cinco al aire',      emoji: '🙌' },
+    handhold:   { alias: ['mano', 'tomardemano'],     con: 'tomo de la mano a',           solo: 'quiere agarrar una manito',    emoji: '❤️' },
+    cringe:     { alias: ['verguenza'],               con: 'siente cringe por',           solo: 'esta cringe total',            emoji: '😬' },
+    bonk:       { alias: [],                          con: 'le dio un BONK a',            solo: 'se bonkeo',                    emoji: '🔨' },
+    cry:        { alias: ['llorar', 'llora'],         con: 'lloro con',                   solo: 'quiere llorar',                emoji: '😢' },
+    lick:       { alias: ['lamer'],                   con: 'lame a',                      solo: 'se lame el labio',             emoji: '👅' },
+    slap:       { alias: ['bofetada', 'abofetear'],   con: 'quiere dar una bofetada a',   solo: 'se dio una bofetada',          emoji: '👋' },
+    dance:      { alias: ['bailar', 'baile'],         con: 'bailo con',                   solo: 'baila solito',                 emoji: '💃' },
+    cuddle:     { alias: ['acurrucar', 'mimar'],      con: 'se acurruco con',             solo: 'quiere mimitos',               emoji: '🤗' }
+};
 
-function obtenerAutor(msg) {
-    const key =
-        msg?.key || {};
+// ---------- MAPEO ALIAS → TIPO ----------
+const MAPA = {};
+for (const [tipo, d] of Object.entries(REACCIONES)) {
+    MAPA[tipo] = tipo;
+    for (const a of d.alias) MAPA[a] = tipo;
+}
+const TIPOS = Object.keys(REACCIONES);
 
+// ---------- MENCION LIMPIA (resuelve @lid) ----------
+async function datosMencion(sock, jid) {
+    try {
+        if (jid.endsWith('@lid') && sock?.signalRepository?.lidMapper?.getPNForLid) {
+            const pn = await sock.signalRepository.lidMapper.getPNForLid(jid);
+            if (pn) {
+                const pj = pn.includes('@') ? pn : pn + '@s.whatsapp.net';
+                return { token: '@' + pj.split('@')[0], jids: [pj] };
+            }
+        }
+    } catch (e) {}
+    return { token: '@' + jid.split('@')[0], jids: [jid] };
+}
+
+// ---------- SACAR URL DE CUALQUIER FORMATO DE RESPUESTA ----------
+function sacarUrl(json) {
+    if (!json || typeof json !== 'object') return null;
+    if (json.status === false) return null;
     const candidatos = [
-        key.participant,
-        key.senderPn,
-        key.participantAlt,
-        key.remoteJid
+        json.url, json.video, json.gif, json.link, json.file,
+        json.result?.url, json.result?.video, json.result?.gif,
+        json.data?.url, json.data?.video, json.data?.gif,
+        json.res?.url, json.response?.url
     ];
-
-    for (const candidato of candidatos) {
-        if (!candidato) {
-            continue;
-        }
-
-        const jid =
-            String(candidato);
-
-        if (jid.endsWith('@g.us')) {
-            continue;
-        }
-
-        return jid;
+    for (const c of candidatos) {
+        if (typeof c === 'string' && c.startsWith('http')) return c;
     }
-
+    if (typeof json.result === 'string' && json.result.startsWith('http')) return json.result;
+    if (typeof json.data === 'string' && json.data.startsWith('http')) return json.data;
     return null;
 }
 
-// ============================================================
-// OBTENER MENCIÓN
-// ============================================================
-
-function obtenerMencion(msg) {
-    const contexto =
-        msg?.message
-            ?.extendedTextMessage
-            ?.contextInfo;
-
-    const mencionados =
-        contexto?.mentionedJid || [];
-
-    if (
-        Array.isArray(mencionados) &&
-        mencionados.length > 0
-    ) {
-        return mencionados[0];
-    }
-
-    return null;
-}
-
-// ============================================================
-// OBTENER USUARIO RESPONDIDO
-// ============================================================
-
-function obtenerPersonaRespondida(msg) {
-    const contexto =
-        msg?.message
-            ?.extendedTextMessage
-            ?.contextInfo;
-
-    if (!contexto?.quotedMessage) {
-        return null;
-    }
-
-    return (
-        contexto.participant ||
-        contexto.participantAlt ||
-        null
-    );
-}
-
-// ============================================================
-// NORMALIZAR JID
-// ============================================================
-
-function normalizarJid(jid) {
-    if (!jid) {
-        return null;
-    }
-
-    const texto =
-        String(jid).trim();
-
-    if (!texto) {
-        return null;
-    }
-
-    return texto;
-}
-
-// ============================================================
-// CREAR TEXTO DE MENCIÓN
-// ============================================================
-
-function crearMencion(jid) {
-    const normalizado =
-        normalizarJid(jid);
-
-    if (!normalizado) {
-        return null;
-    }
-
-    const numero =
-        normalizado
-            .split('@')[0]
-            .split(':')[0]
-            .replace(/[^0-9]/g, '');
-
-    if (!numero) {
-        return null;
-    }
-
-    return `@${numero}`;
-}
-
-// ============================================================
-// NOMBRE BONITO DE LA ACCIÓN
-// ============================================================
-
-function obtenerAccion(tipo) {
-    const acciones = {
-
-        hug:
-            'abraza a',
-
-        kiss:
-            'besa a',
-
-        pat:
-            'acaricia a',
-
-        slap:
-            'da una bofetada a',
-
-        poke:
-            'molesta a',
-
-        cuddle:
-            'se acurruca con',
-
-        wave:
-            'saluda a',
-
-        smile:
-            'sonríe a',
-
-        dance:
-            'baila con',
-
-        cry:
-            'llora con',
-
-        happy:
-            'se alegra con',
-
-        angry:
-            'se enoja con',
-
-        love:
-            'ama a',
-
-        bite:
-            'muerde a',
-
-        blush:
-            'se sonroja con',
-
-        highfive:
-            'choca la mano con',
-
-        handhold:
-            'toma de la mano a',
-
-        feed:
-            'alimenta a',
-
-        bonk:
-            'golpea suavemente a',
-
-        yeet:
-            'lanza a',
-
-        wink:
-            'le guiña el ojo a',
-
-        stare:
-            'mira a',
-
-        tickle:
-            'hace cosquillas a',
-
-        punch:
-            'golpea a',
-
-        kill:
-            'patea a'
-    };
-
-    return (
-        acciones[tipo] ||
-        'interactúa con'
-    );
-}
-
-// ============================================================
-// TEXTO SIN OBJETIVO
-// ============================================================
-
-function textoSinObjetivo(
-    tipo,
-    autorTexto
-) {
-    const mensajes = {
-
-        hug:
-            `${autorTexto} quiere dar muchos abrazos 🤗`,
-
-        kiss:
-            `${autorTexto} quiere dar muchos besos 😘`,
-
-        pat:
-            `${autorTexto} quiere dar muchas caricias 🥰`,
-
-        wave:
-            `${autorTexto} quiere saludar a todos 👋`,
-
-        dance:
-            `${autorTexto} quiere bailar 💃`,
-
-        smile:
-            `${autorTexto} está sonriendo 😄`,
-
-        love:
-            `${autorTexto} está repartiendo amor ❤️`
-    };
-
-    return (
-        mensajes[tipo] ||
-        `${autorTexto} quiere hacer una reacción 🎭`
-    );
-}
-
-// ============================================================
-// CARGAR ANIME.JSON
-// ============================================================
-
-function cargarAnime() {
-
-    if (!fs.existsSync(ANIME_FILE)) {
-        throw new Error(
-            'El archivo database/anime.json no existe.'
-        );
-    }
-
-    const contenido =
-        fs.readFileSync(
-            ANIME_FILE,
-            'utf8'
-        );
-
-    if (!contenido.trim()) {
-        throw new Error(
-            'database/anime.json está vacío.'
-        );
-    }
-
+// ---------- PEDIR A ALYACORE ----------
+async function pedirAlyaCore(tipo) {
     try {
-
-        return JSON.parse(
-            contenido
-        );
-
-    } catch {
-        throw new Error(
-            'database/anime.json contiene JSON inválido.'
-        );
-    }
-}
-
-// ============================================================
-// OBTENER URL ALEATORIA
-// ============================================================
-
-function obtenerUrl(tipo) {
-
-    const datos =
-        cargarAnime();
-
-    const reaccion =
-        datos?.[tipo];
-
-    if (
-        !reaccion ||
-        !Array.isArray(
-            reaccion.videos
-        ) ||
-        reaccion.videos.length === 0
-    ) {
+        const url = `${ALYA_BASE}?inter=${encodeURIComponent(tipo)}&key=${ALYA_KEY}`;
+        const res = await fetch(url);
+        if (!res.ok) return null;
+        const json = await res.json();
+        const urlVideo = sacarUrl(json);
+        if (!urlVideo) return null;
+        return { url: urlVideo, esMp4: urlVideo.endsWith('.mp4') };
+    } catch (e) {
+        console.error('[ALYA] error:', e.message);
         return null;
     }
+}
 
-    const videos =
-        reaccion.videos.filter(
-            url =>
-                typeof url === 'string' &&
-                url.startsWith('http')
-        );
-
-    if (!videos.length) {
-        return null;
-    }
-
-    return (
-        videos[
-            Math.floor(
-                Math.random() *
-                videos.length
-            )
-        ]
-    );
+// ---------- EXTRAER COMANDO (acepta .kiss y . kiss) ----------
+function extraerComando(msg) {
+    const texto = msg.message?.extendedTextMessage?.text
+               || msg.message?.conversation || '';
+    const limpio = texto.trim().replace(/^\.+\s*/, '');
+    return (limpio.split(/\s+/)[0] || '').toLowerCase();
 }
 
 // ============================================================
-// DESCARGAR GIF / VIDEO
+// COMANDO PRINCIPAL
 // ============================================================
-
-async function descargarGif(url) {
-
-    const controller =
-        new AbortController();
-
-    const timeout =
-        setTimeout(
-            () => controller.abort(),
-            30000
-        );
-
-    try {
-
-        const respuesta =
-            await fetch(
-                url,
-                {
-                    signal:
-                        controller.signal,
-
-                    headers: {
-                        'User-Agent':
-                            'BOT-API/1.0'
-                    }
-                }
-            );
-
-        if (!respuesta.ok) {
-            throw new Error(
-                `HTTP ${respuesta.status}`
-            );
-        }
-
-        const arrayBuffer =
-            await respuesta.arrayBuffer();
-
-        return Buffer.from(
-            arrayBuffer
-        );
-
-    } finally {
-
-        clearTimeout(
-            timeout
-        );
-    }
-}
-
-// ============================================================
-// VALIDAR REACCIÓN
-// ============================================================
-
-function reaccionValida(tipo) {
-    return REACCIONES.includes(
-        tipo
-    );
-}
-
-// ============================================================
-// COMANDO
-// ============================================================
-
 export default {
-
     nombre: 'reaccion',
-
     categoria: 'Interacción',
-
-    alias: REACCIONES,
-
-    descripcion:
-        'Reacciones GIF. Ejemplo: .hug, .kiss, .pat, etc.',
-
-    ejecutar: async ({
-        sock,
-        msg,
-        responder
-    }) => {
-
-        const tipo =
-            obtenerTipo(msg);
-
-        // ----------------------------------------------------
-        // VALIDAR COMANDO
-        // ----------------------------------------------------
-
-        if (!reaccionValida(tipo)) {
-
-            await responder.texto(
-                '❌ Reacción no disponible.\n\n' +
-                '🎭 Reacciones disponibles:\n' +
-                REACCIONES
-                    .map(
-                        reaccion =>
-                            `› .${reaccion}`
-                    )
-                    .join('\n')
-            );
-
-            return;
-        }
-
+    alias: [...TIPOS, ...Object.values(REACCIONES).flatMap(d => d.alias), 'reacciones', 'reaction'],
+    descripcion: 'Reacciones anime (AlyaCore): kiss, hug, smoke, seduce... 67 tipos',
+    uso: '.<reaccion> [@usuario]',
+    ejecutar: async ({ sock, msg, responder }) => {
         try {
+            const jid = msg.key.remoteJid;
+            const sender = msg.key.participant || msg.key.remoteJid;
+            const senderName = msg.pushName || sender.split('@')[0].replace(/\D/g, '');
 
-            console.log(
-                `[REACCION] Ejecutando: .${tipo}`
-            );
+            const invocado = extraerComando(msg);
 
-            // ------------------------------------------------
-            // OBTENER URL
-            // ------------------------------------------------
-
-            const url =
-                obtenerUrl(tipo);
-
-            if (!url) {
-
-                await responder.texto(
-                    `❌ No encontré un GIF para la reacción *${tipo}*.`
-                );
-
-                return;
-            }
-
-            console.log(
-                `[REACCION] URL: ${url}`
-            );
-
-            // ------------------------------------------------
-            // DESCARGAR GIF
-            // ------------------------------------------------
-
-            const buffer =
-                await descargarGif(
-                    url
-                );
-
-            if (
-                !buffer ||
-                !buffer.length
-            ) {
-                throw new Error(
-                    'El GIF descargado está vacío.'
-                );
-            }
-
-            console.log(
-                `[REACCION] Archivo descargado: ${buffer.length} bytes`
-            );
-
-            // ------------------------------------------------
-            // OBTENER USUARIOS
-            // ------------------------------------------------
-
-            const autor =
-                obtenerAutor(
-                    msg
-                );
-
-            const mencionado =
-                obtenerMencion(
-                    msg
-                );
-
-            const respondido =
-                obtenerPersonaRespondida(
-                    msg
-                );
-
-            const objetivo =
-                mencionado ||
-                respondido ||
-                null;
-
-            // ------------------------------------------------
-            // CREAR MENCIÓN DEL AUTOR
-            // ------------------------------------------------
-
-            const textoAutor =
-                crearMencion(
-                    autor
-                ) ||
-                '@usuario';
-
-            // ------------------------------------------------
-            // ARRAY DE MENCIONES
-            // ------------------------------------------------
-
-            const menciones = [];
-
-            if (autor) {
-                menciones.push(
-                    autor
-                );
-            }
-
-            if (
-                objetivo &&
-                !menciones.includes(
-                    objetivo
-                )
-            ) {
-                menciones.push(
-                    objetivo
-                );
-            }
-
-            // ------------------------------------------------
-            // CREAR CAPTION
-            // ------------------------------------------------
-
-            let caption =
-                `🎭 *${tipo.toUpperCase()}*\n\n`;
-
-            if (objetivo) {
-
-                const textoObjetivo =
-                    crearMencion(
-                        objetivo
-                    );
-
-                const accion =
-                    obtenerAccion(
-                        tipo
-                    );
-
-                if (
-                    textoObjetivo
-                ) {
-
-                    caption +=
-                        `💫 ${textoAutor} ${accion} ${textoObjetivo}`;
-
-                } else {
-
-                    caption +=
-                        `💫 ${textoSinObjetivo(
-                            tipo,
-                            textoAutor
-                        )}`;
+            // ---------- AYUDA ----------
+            if (invocado === 'reacciones' || invocado === 'reaction' || invocado === 'reaccion') {
+                let lista = '';
+                for (let i = 0; i < TIPOS.length; i += 4) {
+                    lista += TIPOS.slice(i, i + 4).map(t => REACCIONES[t].emoji + ' .' + t).join('  ') + '\n';
                 }
+                return await responder.texto(
+                    bold('REACCIONES') + ' 🎭 (' + TIPOS.length + ')\n' +
+                    'Usa .<reaccion> [@user]\n\n' +
+                    lista + '\n⚡ ' + bold('BOT-API')
+                );
+            }
 
+            // ---------- DETECTAR TIPO ----------
+            const tipo = MAPA[invocado] || null;
+            if (!tipo) {
+                return await responder.texto('❌ Reaccion no valida. Usa .reacciones para ver las ' + TIPOS.length + ' disponibles.');
+            }
+
+            const d = REACCIONES[tipo];
+
+            // ---------- OBJETIVO ----------
+            const ctx = msg.message?.extendedTextMessage?.contextInfo;
+            let target = ctx?.participant || ctx?.mentionedJid?.[0] || null;
+            if (target === sender) target = null;
+
+            let caption;
+            const mentions = [sender];
+
+            if (target) {
+                const t = await datosMencion(sock, target);
+                mentions.push(...t.jids);
+                caption = '`' + senderName + '` ' + bold(d.con) + ' ' + t.token + ' ' + d.emoji;
             } else {
-
-                caption +=
-                    `💫 ${textoSinObjetivo(
-                        tipo,
-                        textoAutor
-                    )}`;
+                caption = '`' + senderName + '` ' + bold(d.solo) + ' ' + d.emoji;
             }
 
-            // ------------------------------------------------
-            // ENVIAR GIF
-            // ------------------------------------------------
+            // ---------- PEDIR VIDEO A ALYACORE ----------
+            const video = await pedirAlyaCore(tipo);
 
-            await sock.sendMessage(
-                msg.key.remoteJid,
-                {
-                    video: buffer,
+            if (!video) {
+                return await responder.texto('❌ AlyaCore no tiene: *' + tipo + '*');
+            }
 
-                    gifPlayback:
-                        true,
-
+            // ---------- ENVIAR VIDEO ANIMADO ----------
+            try {
+                await sock.sendMessage(jid, {
+                    video: { url: video.url },
+                    mimetype: video.esMp4 ? 'video/mp4' : 'image/gif',
+                    gifPlayback: true,
                     caption,
-
-                    mentions:
-                        menciones
-                },
-                {
-                    quoted:
-                        msg
-                }
-            );
-
-            // ------------------------------------------------
-            // LOG
-            // ------------------------------------------------
-
-            console.log(
-                `[REACCION] .${tipo} enviado correctamente.`
-            );
+                    mentions
+                }, { quoted: msg });
+            } catch (e) {
+                console.error('[REACCIONES] envio error:', e.message);
+                await responder.texto(caption);
+            }
 
         } catch (error) {
-
-            console.error(
-                '[REACCION] Error:',
-                error?.stack ||
-                error?.message ||
-                error
-            );
-
-            await responder.texto(
-                '╭━━〔 ❌ 𝐑𝐄𝐀𝐂𝐂𝐈Ó𝐍 〕━━⬣\n' +
-                '┃\n' +
-                `┃ No pude enviar *${tipo}*.\n` +
-                '┃\n' +
-                `┃ ⚠️ ${
-                    error?.message ||
-                    'Error desconocido.'
-                }\n` +
-                '┃\n' +
-                '╰━━━━━━━━━━━━━━━━⬣'
-            );
+            console.error('[REACCIONES] Error:', error);
+            await responder.texto('❌ Error: ' + (error.message || error));
         }
     }
 };
