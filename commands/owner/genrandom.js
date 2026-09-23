@@ -327,7 +327,7 @@ async function runGeneration(responder, seriesTag, extraTags = [], pages = 5) {
 export default {
     nombre: 'genchar',
 
-    categoria: 'Owner',
+    categoria: 'gacha',
 
     alias: ['generar'],
 
@@ -335,9 +335,9 @@ export default {
 
     descripcion: '🎴 (Owner) Genera personajes desde konachan para el gacha.',
 
-    ejecutar: async ({ sock, msg, responder, argumento }) => {
+    ejecutar: async ({ msg, responder, argumento }) => {
 
-        if (!esOwner(msg, sock?.archivoOwner)) {
+        if (!esOwner(msg)) {
             await responder.texto(caja('⛔', 'ACCESO DENEGADO', ['Este comando es solo para el Owner.']));
             return;
         }
