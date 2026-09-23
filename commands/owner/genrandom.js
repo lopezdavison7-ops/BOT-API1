@@ -16,7 +16,16 @@ const VALORES_POSIBLES = [
     8500, 10000, 12400, 15000, 18000, 25000
 ];
 
-const UA = { 'User-Agent': 'konachan-scraper/1.0' };
+// ============================================================
+// HEADERS DE NAVEGADOR REAL (anti-bloqueo)
+// ============================================================
+const UA = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Accept': 'application/json, text/plain, */*',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Referer': 'https://konachan.net/',
+    'Origin': 'https://konachan.net'
+};
 
 const randomValue = () =>
     VALORES_POSIBLES[Math.floor(Math.random() * VALORES_POSIBLES.length)];
@@ -68,8 +77,11 @@ async function fetchAllPosts(seriesTag, extraTags = [], pages = 5) {
     for (let page = 1; page <= pages; page++) {
         const url = `https://konachan.net/post.json?tags=${encodeURIComponent(baseTags)}&limit=100&page=${page}`;
         try {
-            const res = await fetch(url, { signal: AbortSignal.timeout(10_000), headers: UA });
-            if (!res.ok) break;
+            const res = await fetch(url, { signal: AbortSignal.timeout(15_000), headers: UA });
+            if (!res.ok) {
+                console.error(`[GENCHAR] fetchAllPosts HTTP ${res.status} page ${page}`);
+                continue;
+            }
             const posts = await res.json();
             if (!Array.isArray(posts) || posts.length === 0) break;
 
@@ -81,8 +93,9 @@ async function fetchAllPosts(seriesTag, extraTags = [], pages = 5) {
             allPosts.push(...filtrados);
             if (posts.length < 100) break;
             await delay(800);
-        } catch {
-            break;
+        } catch (error) {
+            console.error(`[GENCHAR] fetchAllPosts error page ${page}:`, error.message);
+            continue;
         }
     }
     return allPosts;
@@ -132,7 +145,7 @@ async function filterCharacterTags(tagNames, seriesTag) {
             try {
                 const tagRes = await fetch(
                     `https://konachan.net/tag.json?name=${encodeURIComponent(tag)}`,
-                    { signal: AbortSignal.timeout(8_000), headers: UA }
+                    { signal: AbortSignal.timeout(10_000), headers: UA }
                 );
                 if (!tagRes.ok) return;
                 const tagData = await tagRes.json();
@@ -141,7 +154,7 @@ async function filterCharacterTags(tagNames, seriesTag) {
 
                 const checkRes = await fetch(
                     `https://konachan.net/post.json?tags=${encodeURIComponent(tag)}&limit=100`,
-                    { signal: AbortSignal.timeout(8_000), headers: UA }
+                    { signal: AbortSignal.timeout(10_000), headers: UA }
                 );
                 if (!checkRes.ok) return;
                 const checkPosts = await checkRes.json();
@@ -192,7 +205,7 @@ async function fetchRandomSeriesTags(cantidad = 5) {
         try {
             const res = await fetch(
                 `https://konachan.net/tag.json?type=3&order=count&limit=100&page=${page}`,
-                { signal: AbortSignal.timeout(8_000), headers: UA }
+                { signal: AbortSignal.timeout(10_000), headers: UA }
             );
             if (!res.ok) continue;
             const tags = await res.json();
@@ -208,7 +221,7 @@ async function fetchRandomSeriesTags(cantidad = 5) {
         try {
             const res = await fetch(
                 'https://konachan.net/tag.json?type=3&order=count&limit=100&page=1',
-                { signal: AbortSignal.timeout(8_000), headers: UA }
+                { signal: AbortSignal.timeout(10_000), headers: UA }
             );
             const tags = await res.json();
             for (const t of tags) {
@@ -232,7 +245,7 @@ function elegirUrlImagen(charTag, posts) {
 }
 
 async function descargarImagen(url) {
-    const res = await fetch(url, { signal: AbortSignal.timeout(15_000), headers: UA });
+    const res = await fetch(url, { signal: AbortSignal.timeout(20_000), headers: UA });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const arrayBuffer = await res.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
