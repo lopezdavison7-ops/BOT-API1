@@ -72,6 +72,7 @@ export default {
     nombre: 'xvideos',
     categoria: 'Descargas',
     alias: ['xv', 'xvsearch', 'xvdl'],
+    premium:true
     descripcion: 'Busca y descarga videos de Xvideos',
     uso: '.xvideos <búsqueda>',
     ejecutar: async ({ msg, argumento, responder, jid }) => {
