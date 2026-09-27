@@ -1,10 +1,3 @@
-// ============================================================
-// BOT-API
-// Conexión por código de emparejamiento o QR
-// Sistema de bienvenida + despedida con foto de perfil
-// ============================================================
-
-// IMPORTANTE: esto debe ir primero que cualquier otro import.
 import 'dotenv/config';
 
 import * as baileysNS from 'baileys';
@@ -19,6 +12,8 @@ import { handleMessage } from './handler.js';
 import { loadCommands } from './controllers/cmdManager.js';
 import { manejarDespedida } from './commands/group/despedida.js';
 import { registrarRutasSubbot } from './lib/subbotWeb.js';
+import { registrarRutasAdmin } from './lib/adminWeb.js';
+import { inicializarUsuariosWeb } from './lib/usuariosWeb.js';
 import { inicializarGestorSubbots, reconectarSubbotsGuardados } from './lib/subbotManager.js';
 
 const baileys = baileysNS.default ?? baileysNS;
@@ -46,12 +41,10 @@ let comandos = null;
 
 const app = Fastify({ logger: false });
 
-// En Render usamos un solo Web Service.
-// Panel web de subbots dentro del MISMO servidor/puerto de Render.
+inicializarUsuariosWeb();
 registrarRutasSubbot(app);
+registrarRutasAdmin(app);
 
-// La página principal abre directamente el panel de subbots.
-// La ruta /subbot es la que sirve el HTML real.
 app.get('/', async (req, reply) => {
     return reply.redirect('/subbot');
 });
@@ -189,13 +182,8 @@ async function iniciarBot() {
         comandos = await loadCommands();
         console.log(`📦 Comandos cargados: ${comandos.size}`);
 
-        // Los subbots reutilizan el mismo Map de comandos del bot principal.
-        // Esto permite que /subbot funcione aunque Render solo ejecute
-        // `npm start` (index.js) y no un segundo proceso.
         inicializarGestorSubbots(() => comandos);
 
-        // Recuperar sesiones de subbots que ya estaban guardadas.
-        // Se ejecuta en segundo plano para no bloquear el arranque principal.
         reconectarSubbotsGuardados().catch(error => {
             console.error('[SUBBOT] ❌ Error reconectando sesiones:', error?.message || error);
         });
@@ -225,15 +213,7 @@ async function iniciarBot() {
 
         sock.ev.on('creds.update', saveCreds);
 
-        // ========================================================
-        // BIENVENIDA + DESPEDIDA
-        // ========================================================
-
         sock.ev.on('group-participants.update', async ({ id, participants, action }) => {
-
-            // ====================================================
-            // DESPEDIDA
-            // ====================================================
 
             if (action === 'remove') {
                 try {
@@ -251,10 +231,6 @@ async function iniciarBot() {
 
                 return;
             }
-
-            // ====================================================
-            // BIENVENIDA
-            // ====================================================
 
             try {
                 if (action !== 'add' || !Array.isArray(participants) || participants.length === 0) return;
@@ -428,10 +404,6 @@ async function iniciarBot() {
                 }, espera);
             }
         });
-
-        // ============================================================
-        // MENSAJES (CON LISTA DE COMANDOS REAL)
-        // ============================================================
 
         sock.ev.on('messages.upsert', async ({ messages }) => {
             const m = messages[0];
