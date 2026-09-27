@@ -1,7 +1,8 @@
-// handler.js
+
 import { loadCommands } from './controllers/cmdManager.js';
 import { procesarMinijuegos } from './lib/minijuegos.js';
 import { botEstaActivo } from './lib/botEstado.js';
+import { planDeSubbot } from './lib/usuariosWeb.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -12,9 +13,6 @@ const RUTA_PRIMARY = path.join(process.cwd(), 'database', 'primary.json');
 let comandos = null;
 let botJid = null;
 
-// ============================================================
-// HELPERS
-// ============================================================
 function soloNumeroHandler(jid) {
     return String(jid || '').split('@')[0].split(':')[0].replace(/\D/g, '');
 }
@@ -45,9 +43,6 @@ function leerPrimary() {
     } catch (e) { return {}; }
 }
 
-// ============================================================
-// CARGAR COMANDOS
-// ============================================================
 export async function cargarComandosHandler() {
     if (!comandos) {
         comandos = await loadCommands();
@@ -56,9 +51,6 @@ export async function cargarComandosHandler() {
     return comandos;
 }
 
-// ============================================================
-// HANDLE MESSAGE
-// ============================================================
 export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []) {
     try {
         if (!comandos) {
@@ -76,23 +68,14 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
         const fromMe = msg.key.fromMe;
         const isGroup = jid?.endsWith('@g.us');
 
-        // ============================================
-        // 👑 OWNER AUTOMÁTICO EN SUBBOTS
-        // ============================================
         if (sock?.esSubbot && fromMe) {
             msg.esOwnerAutomatico = true;
         }
 
-        // ============================================
-        // ARCHIVO DE OWNERS DEL SUBBOT (respaldo)
-        // ============================================
         if (sock?.archivoOwner && !msg.archivoOwnerOverride) {
             msg.archivoOwnerOverride = sock.archivoOwner;
         }
 
-        // ============================================
-        // 🔥 DETECTOR AFK AUTÓNOMO (en CUALQUIER mensaje)
-        // ============================================
         if (!fromMe) {
             try {
                 const textoMsg = msg.message?.conversation || msg.message?.extendedTextMessage?.text || '';
@@ -107,7 +90,6 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
                         delete db[sender];
                         guardarAfk(db);
 
-                        // Mención fija: intenta resolver lid → si no, usa nombre
                         let textoUser = '@' + String(sender).split('@')[0].replace(/\D/g, '');
                         let mentions = [sender];
 
@@ -148,9 +130,6 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
             }
         }
 
-        // ============================================
-        // SACAR TEXTO
-        // ============================================
         let texto = '';
         if (msg.message?.conversation) {
             texto = msg.message.conversation;
@@ -188,9 +167,6 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
 
         if (!texto) return;
 
-        // ============================================
-        // MENÚ POR NÚMERO
-        // ============================================
         if (/^\d+$/.test(texto.trim())) {
             const num = parseInt(texto.trim(), 10);
             const mapa = global.menuMap?.[jid];
@@ -199,14 +175,8 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
             }
         }
 
-        // ============================================
-        // SOLO COMANDOS CON PREFIJO
-        // ============================================
         if (!texto.startsWith(prefijo)) return;
 
-        // ============================================
-        // SEPARAR COMANDO Y ARGUMENTOS
-        // ============================================
         const sinPrefijo = texto.slice(prefijo.length).trim();
         if (!sinPrefijo) return;
 
@@ -226,9 +196,6 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
             ? argumento.split(/\s+/).filter(Boolean)
             : [];
 
-        // ============================================
-        // .menu 1 / .menu 2 / ETC.
-        // ============================================
         if (
             nombreComando === 'menu' &&
             args[0] &&
@@ -241,9 +208,6 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
             }
         }
 
-        // ============================================
-        // BUSCAR COMANDO
-        // ============================================
         let cmd = comandos.get(nombreComando);
         if (!cmd) {
             cmd = [...comandos.values()].find(
@@ -255,9 +219,6 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
 
         if (!cmd) return;
 
-        // ============================================
-        // 🔴 BOT APAGADO
-        // ============================================
         const esComandoBot =
             nombreComando === 'bot' ||
             (
@@ -269,15 +230,26 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
             return;
         }
 
-        // ============================================
-        // MINIJUEGOS
-        // ============================================
+        if (cmd.premium && sock?.esSubbot) {
+            const plan = planDeSubbot(sock.subbotId, sock.numeroSubbot);
+            if (plan !== 'premium') {
+                await sock.sendMessage(
+                    jid,
+                    {
+                        text:
+                            '💎 *COMANDO PREMIUM*\n\n' +
+                            'Este comando es exclusivo de subbots con plan PREMIUM.\n\n' +
+                            '👑 Contacta al admin del bot para subir tu plan.'
+                    },
+                    { quoted: msg }
+                );
+                return;
+            }
+        }
+
         const fueMinijuego = await procesarMinijuegos(sock, msg);
         if (fueMinijuego) return;
 
-        // ============================================
-        // 👑 FILTRO PRIMARY
-        // ============================================
         if (isGroup) {
             try {
                 const primaryDb = JSON.parse(
@@ -305,9 +277,7 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
                 console.error('[PRIMARY] Error:', e?.message || e);
             }
         }
-        // ============================================
-        // EJECUTAR COMANDO
-        // ============================================
+
         await cmd.ejecutar({
             sock,
             msg,
