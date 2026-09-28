@@ -2,6 +2,11 @@ import { loadCommands } from './controllers/cmdManager.js';
 import { procesarMinijuegos } from './lib/minijuegos.js';
 import { botEstaActivo } from './lib/botEstado.js';
 import { planDeSubbot } from './lib/usuariosWeb.js';
+import { manejarMensajeTrivia } from './lib/trivia.js';
+import { manejarMensajeTetris } from './lib/tetris.js';
+import { manejarMensajeAdivinanza } from './lib/adivinanza.js';
+import { manejarMensajeTTT } from './lib/ttt.js';
+import { manejarMensajePreguntaHot } from './lib/preguntashot.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -295,6 +300,23 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
                     }
                 }
             }
+        }
+
+        if (!fromMe) {
+            const fueTrivia = await manejarMensajeTrivia(sock, msg);
+            if (fueTrivia) return;
+
+            const fueTetris = await manejarMensajeTetris(sock, msg);
+            if (fueTetris) return;
+
+            const fueAdivinanza = await manejarMensajeAdivinanza(sock, msg);
+            if (fueAdivinanza) return;
+
+            const fueTTT = await manejarMensajeTTT(sock, msg);
+            if (fueTTT) return;
+
+            const fuePreguntaHot = await manejarMensajePreguntaHot(sock, msg);
+            if (fuePreguntaHot) return;
         }
 
         if (!texto) return;
