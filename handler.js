@@ -111,7 +111,7 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
 
                         await sock.sendMessage(jid, {
                             text:
-                                `╭━━〔 ✅ 𝐕𝐎𝐋𝐕𝐈𝐒𝐓𝐄 〕━━⬣\n` +
+                                `╭━━〔 ✅ 𝐕𝐋𝐕𝐈𝐒𝐓𝐄 〕━━⬣\n` +
                                 `┃\n` +
                                 `┃ 🎉 ${textoUser} ya regresaste!\n` +
                                 `┃\n` +
@@ -165,6 +165,14 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
                     .selectedRowId;
         }
 
+        if (!texto) {
+            if (msg.message?.buttonsResponseMessage?.selectedButtonId) {
+                texto = msg.message.buttonsResponseMessage.selectedButtonId;
+            } else if (msg.message?.buttonsResponseMessage?.selectedDisplayText) {
+                texto = msg.message.buttonsResponseMessage.selectedDisplayText;
+            }
+        }
+
         if (!texto) return;
 
         if (!fromMe) {
@@ -172,22 +180,26 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
             const sesion = global.playSessions?.[sender];
 
             if (sesion && sesion.jid === jid) {
-                const textoLimpio = texto.trim().toLowerCase();
-                const esBotonAudio = textoLimpio === 'playaudio' || textoLimpio === '1' || textoLimpio === 'audio';
-                const esBotonVideo = textoLimpio === 'playvideo' || textoLimpio === '2' || textoLimpio === 'video';
+                const norm = String(texto).toLowerCase().replace(/[^a-z0-9]/g, '');
+                const esAudio = ['playaudio', 'audio', '1'].includes(norm);
+                const esVideo = ['playvideo', 'video', '2'].includes(norm);
 
-                if (esBotonAudio || esBotonVideo) {
+                if (esAudio || esVideo) {
                     delete global.playSessions[sender];
-                    
+
                     const responderPlay = {
-                        texto: async (text) => {
-                            await sock.sendMessage(jid, { text }, { quoted: msg });
+                        texto: async (t) => {
+                            try {
+                                await sock.sendMessage(jid, { text: t }, { quoted: msg });
+                            } catch {
+                                await sock.sendMessage(jid, { text: t });
+                            }
                         }
                     };
 
-                    if (esBotonAudio) {
+                    if (esAudio) {
                         await procesarAudio(sock, msg, sesion.video, responderPlay);
-                    } else if (esBotonVideo) {
+                    } else {
                         await procesarVideo(sock, msg, sesion.video, responderPlay);
                     }
                     return;
