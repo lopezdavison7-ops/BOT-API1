@@ -2,7 +2,6 @@ import { loadCommands } from './controllers/cmdManager.js';
 import { procesarMinijuegos } from './lib/minijuegos.js';
 import { botEstaActivo } from './lib/botEstado.js';
 import { planDeSubbot } from './lib/usuariosWeb.js';
-import { procesarAudio, procesarVideo } from './commands/downloads/play.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -41,6 +40,72 @@ function leerPrimary() {
         if (!fs.existsSync(RUTA_PRIMARY)) return {};
         return JSON.parse(fs.readFileSync(RUTA_PRIMARY, 'utf8'));
     } catch (e) { return {}; }
+}
+
+function buscarSesionPlay(msg) {
+    const sessions = global.playSessions;
+    if (!sessions) return null;
+
+    const candidatos = [
+        msg.key?.participant,
+        msg.key?.senderPn,
+        msg.key?.participantAlt,
+        msg.key?.remoteJidAlt,
+        msg.key?.sender,
+        msg.key?.remoteJid
+    ];
+
+    for (const c of candidatos) {
+        if (c && sessions[c]) {
+            return { clave: c, session: sessions[c] };
+        }
+    }
+    return null;
+}
+
+function extraerButtonId(msg) {
+    try {
+        if (msg.message?.buttonsResponseMessage?.selectedButtonId) {
+            return msg.message.buttonsResponseMessage.selectedButtonId;
+        }
+
+        if (msg.message?.templateButtonReplyMessage?.selectedId) {
+            return msg.message.templateButtonReplyMessage.selectedId;
+        }
+
+        if (msg.message?.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson) {
+            const json = JSON.parse(msg.message.interactiveResponseMessage.nativeFlowResponseMessage.paramsJson);
+            return json.id || json.selected_row_id || null;
+        }
+
+        if (msg.message?.listResponseMessage?.singleSelectReply?.selectedRowId) {
+            return msg.message.listResponseMessage.singleSelectReply.selectedRowId;
+        }
+    } catch (e) {}
+
+    return null;
+}
+
+function buscarArchivoPlay() {
+    const base = path.join(process.cwd(), 'commands');
+
+    function buscarEn(dir) {
+        try {
+            const entries = fs.readdirSync(dir, { withFileTypes: true });
+            for (const entry of entries) {
+                const fullPath = path.join(dir, entry.name);
+                if (entry.isDirectory()) {
+                    const r = buscarEn(fullPath);
+                    if (r) return r;
+                } else if (entry.isFile() && entry.name.toLowerCase() === 'play.js') {
+                    return fullPath;
+                }
+            }
+        } catch (e) {}
+        return null;
+    }
+
+    return buscarEn(base);
 }
 
 export async function cargarComandosHandler() {
@@ -111,7 +176,7 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
 
                         await sock.sendMessage(jid, {
                             text:
-                                `╭━━〔 ✅ 𝐕𝐋𝐕𝐈𝐒𝐓𝐄 〕━━⬣\n` +
+                                `╭━━〔 ✅ 𝐕𝐎𝐋𝐕𝐈𝐒𝐓𝐄 〕━━⬣\n` +
                                 `┃\n` +
                                 `┃ 🎉 ${textoUser} ya regresaste!\n` +
                                 `┃\n` +
@@ -151,7 +216,7 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
                         .nativeFlowResponseMessage
                         .paramsJson
                 );
-                texto = json.id || '';
+                texto = json.id || json.display_text || '';
             } catch {}
         } else if (
             msg.message?.listResponseMessage
@@ -165,47 +230,74 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
                     .selectedRowId;
         }
 
-        if (!texto) {
-            if (msg.message?.buttonsResponseMessage?.selectedButtonId) {
-                texto = msg.message.buttonsResponseMessage.selectedButtonId;
-            } else if (msg.message?.buttonsResponseMessage?.selectedDisplayText) {
-                texto = msg.message.buttonsResponseMessage.selectedDisplayText;
+        const buttonId = extraerButtonId(msg);
+
+        if (!fromMe && (texto || buttonId)) {
+            const textoLimpio = String(texto || '').trim().toLowerCase();
+            const btnIdLimpio = String(buttonId || '').trim().toLowerCase();
+
+            const esAudio =
+                btnIdLimpio === 'playaudio' ||
+                btnIdLimpio === 'play_audio' ||
+                textoLimpio === 'playaudio' ||
+                textoLimpio === 'play_audio' ||
+                textoLimpio === '1' ||
+                textoLimpio === '🎵 audio' ||
+                textoLimpio === 'audio';
+
+            const esVideo =
+                btnIdLimpio === 'playvideo' ||
+                btnIdLimpio === 'play_video' ||
+                textoLimpio === 'playvideo' ||
+                textoLimpio === 'play_video' ||
+                textoLimpio === '2' ||
+                textoLimpio === '🎬 video' ||
+                textoLimpio === 'video';
+
+            if (esAudio || esVideo) {
+                const encontrada = buscarSesionPlay(msg);
+
+                if (encontrada) {
+                    const { clave, session } = encontrada;
+
+                    if (Date.now() - session.timestamp < 600000) {
+                        try {
+                            const rutaPlay = buscarArchivoPlay();
+
+                            if (rutaPlay) {
+                                const playMod = await import(rutaPlay);
+                                const { procesarAudio, procesarVideo } = playMod;
+
+                                const responder = {
+                                    texto: async (t) => {
+                                        try {
+                                            await sock.sendMessage(jid, { text: t }, { quoted: msg });
+                                        } catch {
+                                            await sock.sendMessage(jid, { text: t });
+                                        }
+                                    }
+                                };
+
+                                if (esAudio) {
+                                    await procesarAudio(sock, msg, session.video, responder);
+                                } else {
+                                    await procesarVideo(sock, msg, session.video, responder);
+                                }
+                            }
+
+                            delete global.playSessions[clave];
+                            return;
+                        } catch (e) {
+                            console.error('[PLAY-SESSION] Error:', e?.message || e);
+                        }
+                    } else {
+                        delete global.playSessions[clave];
+                    }
+                }
             }
         }
 
         if (!texto) return;
-
-        if (!fromMe) {
-            const sender = msg.key.participant || msg.key.senderPn || msg.key.participantAlt || msg.key.remoteJid;
-            const sesion = global.playSessions?.[sender];
-
-            if (sesion && sesion.jid === jid) {
-                const norm = String(texto).toLowerCase().replace(/[^a-z0-9]/g, '');
-                const esAudio = ['playaudio', 'audio', '1'].includes(norm);
-                const esVideo = ['playvideo', 'video', '2'].includes(norm);
-
-                if (esAudio || esVideo) {
-                    delete global.playSessions[sender];
-
-                    const responderPlay = {
-                        texto: async (t) => {
-                            try {
-                                await sock.sendMessage(jid, { text: t }, { quoted: msg });
-                            } catch {
-                                await sock.sendMessage(jid, { text: t });
-                            }
-                        }
-                    };
-
-                    if (esAudio) {
-                        await procesarAudio(sock, msg, sesion.video, responderPlay);
-                    } else {
-                        await procesarVideo(sock, msg, sesion.video, responderPlay);
-                    }
-                    return;
-                }
-            }
-        }
 
         if (/^\d+$/.test(texto.trim())) {
             const num = parseInt(texto.trim(), 10);
