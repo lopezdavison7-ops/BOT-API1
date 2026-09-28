@@ -1,8 +1,8 @@
-
 import { loadCommands } from './controllers/cmdManager.js';
 import { procesarMinijuegos } from './lib/minijuegos.js';
 import { botEstaActivo } from './lib/botEstado.js';
 import { planDeSubbot } from './lib/usuariosWeb.js';
+import { procesarAudio, procesarVideo } from './commands/downloads/play.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -166,6 +166,34 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
         }
 
         if (!texto) return;
+
+        if (!fromMe) {
+            const sender = msg.key.participant || msg.key.senderPn || msg.key.participantAlt || msg.key.remoteJid;
+            const sesion = global.playSessions?.[sender];
+
+            if (sesion && sesion.jid === jid) {
+                const textoLimpio = texto.trim().toLowerCase();
+                const esBotonAudio = textoLimpio === 'playaudio' || textoLimpio === '1' || textoLimpio === 'audio';
+                const esBotonVideo = textoLimpio === 'playvideo' || textoLimpio === '2' || textoLimpio === 'video';
+
+                if (esBotonAudio || esBotonVideo) {
+                    delete global.playSessions[sender];
+                    
+                    const responderPlay = {
+                        texto: async (text) => {
+                            await sock.sendMessage(jid, { text }, { quoted: msg });
+                        }
+                    };
+
+                    if (esBotonAudio) {
+                        await procesarAudio(sock, msg, sesion.video, responderPlay);
+                    } else if (esBotonVideo) {
+                        await procesarVideo(sock, msg, sesion.video, responderPlay);
+                    }
+                    return;
+                }
+            }
+        }
 
         if (/^\d+$/.test(texto.trim())) {
             const num = parseInt(texto.trim(), 10);
