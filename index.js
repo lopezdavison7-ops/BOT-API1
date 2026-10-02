@@ -144,22 +144,6 @@ function preguntarNumero() {
 }
 
 async function configurarConexion() {
-    const esTerminal = Boolean(process.stdin.isTTY);
-    const numeroEnv = String(process.env.NUMERO_BOT || '').replace(/\D/g, '');
-
-    if (!esTerminal) {
-        if (numeroEnv) {
-            metodoConexion = '1';
-            numeroTelefono = numeroEnv;
-            console.log(`\n✅ Modo servidor (sin consola): código de emparejamiento para +${numeroTelefono}`);
-        } else {
-            metodoConexion = '2';
-            numeroTelefono = null;
-            console.log('\n📱 Modo servidor (sin consola): conexión por QR → abre /qr en la web.');
-        }
-        return;
-    }
-
     metodoConexion = await preguntarOpcion();
     if (metodoConexion === '1') {
         numeroTelefono = await preguntarNumero();
@@ -357,7 +341,7 @@ async function iniciarBot() {
                             fotoPerfil = null;
                         }
 
-                        const bienvenida = `╭━━━〔 ✨ *BIENVENIDO/A* 〕━━━╮\n┃\n┃ 👤 *${nombreUsuario}*\n┃\n┃ 🎉 ¡Bienvenido/a a\n┃    *${nombreGrupo}*!\n┃\n┃ 🤝 Esperamos que disfrutes\n┃    tu estancia con nosotros.\n┃\n┃ 📜 Escribe *.menu* para\n┃    ver los comandos.\n┃\n━━━━━━━━━━━━━━━━━━━━━━╯\n\n              🤖 *BOT-API*`;
+                        const bienvenida = `╭━━━〔 ✨ *BIENVENIDO/A* 〕━━━╮\n┃\n┃ 👤 *${nombreUsuario}*\n┃\n┃ 🎉 ¡Bienvenido/a a\n┃    *${nombreGrupo}*!\n┃\n┃ 🤝 Esperamos que disfrutes\n┃    tu estancia con nosotros.\n┃\n┃ 📜 Escribe *.menu* para\n┃    ver los comandos.\n┃\n╰━━━━━━━━━━━━━━━━━━━━━━╯\n\n              🤖 *BOT-API*`;
 
                         if (fotoPerfil) {
                             try {
@@ -473,5 +457,4 @@ async function iniciarBot() {
     }
 }
 
-console.log('🧩 index.js cargado COMPLETO — arrancando bot...');
 iniciarBot();
