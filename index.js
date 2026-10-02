@@ -28,7 +28,7 @@ if (typeof makeWASocket !== 'function') {
     throw new Error('No se pudo cargar makeWASocket desde Baileys.');
 }
 
-const PORT = Number(process.env.PORT) || 3000;
+const PORT = Number(process.env.PORT || process.env.SUBBOT_PORT) || 3000;
 const AUTH_FOLDER = './auth_info';
 
 let metodoConexion = null;
@@ -40,6 +40,26 @@ let iniciando = false;
 let comandos = null;
 
 const app = Fastify({ logger: false });
+
+process.on('unhandledRejection', (razon) => {
+    console.error('[PROCESS] unhandledRejection:', razon);
+});
+
+process.on('uncaughtException', (error) => {
+    console.error('[PROCESS] uncaughtException:', error?.stack || error?.message || error);
+});
+
+process.on('SIGTERM', () => {
+    console.log('🛑 SIGTERM recibido, cerrando...');
+    process.exit(0);
+});
+
+process.on('SIGINT', () => {
+    console.log('🛑 SIGINT recibido, cerrando...');
+    process.exit(0);
+});
+
+setInterval(() => {}, 60000);
 
 inicializarUsuariosWeb();
 registrarRutasSubbot(app);
@@ -126,6 +146,22 @@ function preguntarNumero() {
 }
 
 async function configurarConexion() {
+    const esTerminal = Boolean(process.stdin.isTTY);
+    const numeroEnv = String(process.env.NUMERO_BOT || '').replace(/\D/g, '');
+
+    if (!esTerminal) {
+        if (numeroEnv) {
+            metodoConexion = '1';
+            numeroTelefono = numeroEnv;
+            console.log(`\n✅ Modo servidor (sin consola): código de emparejamiento para +${numeroTelefono}`);
+        } else {
+            metodoConexion = '2';
+            numeroTelefono = null;
+            console.log('\n📱 Modo servidor (sin consola): conexión por QR → abre /qr en la web.');
+        }
+        return;
+    }
+
     metodoConexion = await preguntarOpcion();
     if (metodoConexion === '1') {
         numeroTelefono = await preguntarNumero();
@@ -323,7 +359,7 @@ async function iniciarBot() {
                             fotoPerfil = null;
                         }
 
-                        const bienvenida = `╭━━━〔 ✨ *BIENVENIDO/A* 〕━━━╮\n┃\n┃ 👤 *${nombreUsuario}*\n┃\n┃ 🎉 ¡Bienvenido/a a\n┃    *${nombreGrupo}*!\n┃\n┃ 🤝 Esperamos que disfrutes\n┃    tu estancia con nosotros.\n┃\n┃ 📜 Escribe *.menu* para\n┃    ver los comandos.\n┃\n╰━━━━━━━━━━━━━━━━━━━━━━╯\n\n              🤖 *BOT-API*`;
+                        const bienvenida = `╭━━━〔 ✨ *BIENVENIDO/A* 〕━━━╮\n┃\n┃ 👤 *${nombreUsuario}*\n┃\n┃ 🎉 ¡Bienvenido/a a\n┃    *${nombreGrupo}*!\n┃\n┃ 🤝 Esperamos que disfrutes\n┃    tu estancia con nosotros.\n┃\n┃ 📜 Escribe *.menu* para\n┃    ver los comandos.\n┃\n━━━━━━━━━━━━━━━━━━━━━━╯\n\n              🤖 *BOT-API*`;
 
                         if (fotoPerfil) {
                             try {
@@ -439,4 +475,5 @@ async function iniciarBot() {
     }
 }
 
+console.log('🧩 index.js cargado COMPLETO — arrancando bot...');
 iniciarBot();
