@@ -12,7 +12,6 @@ import { handleMessage } from './handler.js';
 import { loadCommands } from './controllers/cmdManager.js';
 import { manejarDespedida } from './commands/group/despedida.js';
 import { registrarRutasSubbot } from './lib/subbotWeb.js';
-import { registrarRutasAdmin } from './lib/adminWeb.js';
 import { inicializarUsuariosWeb } from './lib/usuariosWeb.js';
 import { inicializarGestorSubbots, reconectarSubbotsGuardados } from './lib/subbotManager.js';
 
@@ -63,7 +62,6 @@ setInterval(() => {}, 60000);
 
 inicializarUsuariosWeb();
 registrarRutasSubbot(app);
-registrarRutasAdmin(app);
 
 app.get('/', async (req, reply) => {
     return reply.redirect('/subbot');
