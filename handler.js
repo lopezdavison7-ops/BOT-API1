@@ -47,27 +47,6 @@ function leerPrimary() {
     } catch (e) { return {}; }
 }
 
-function buscarSesionPlay(msg) {
-    const sessions = global.playSessions;
-    if (!sessions) return null;
-
-    const candidatos = [
-        msg.key?.participant,
-        msg.key?.senderPn,
-        msg.key?.participantAlt,
-        msg.key?.remoteJidAlt,
-        msg.key?.sender,
-        msg.key?.remoteJid
-    ];
-
-    for (const c of candidatos) {
-        if (c && sessions[c]) {
-            return { clave: c, session: sessions[c] };
-        }
-    }
-    return null;
-}
-
 function extraerButtonId(msg) {
     try {
         if (msg.message?.buttonsResponseMessage?.selectedButtonId) {
@@ -89,28 +68,6 @@ function extraerButtonId(msg) {
     } catch (e) {}
 
     return null;
-}
-
-function buscarArchivoPlay() {
-    const base = path.join(process.cwd(), 'commands');
-
-    function buscarEn(dir) {
-        try {
-            const entries = fs.readdirSync(dir, { withFileTypes: true });
-            for (const entry of entries) {
-                const fullPath = path.join(dir, entry.name);
-                if (entry.isDirectory()) {
-                    const r = buscarEn(fullPath);
-                    if (r) return r;
-                } else if (entry.isFile() && entry.name.toLowerCase() === 'play.js') {
-                    return fullPath;
-                }
-            }
-        } catch (e) {}
-        return null;
-    }
-
-    return buscarEn(base);
 }
 
 export async function cargarComandosHandler() {
@@ -237,88 +194,6 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
 
         const buttonId = extraerButtonId(msg);
 
-        if (!fromMe && (texto || buttonId)) {
-            const textoLimpio = String(texto || '').trim().toLowerCase();
-            const btnIdLimpio = String(buttonId || '').trim().toLowerCase();
-
-            const esAudio =
-                btnIdLimpio === 'playaudio' ||
-                btnIdLimpio === 'play_audio' ||
-                textoLimpio === 'playaudio' ||
-                textoLimpio === 'play_audio' ||
-                textoLimpio === '1' ||
-                textoLimpio === '🎵 audio' ||
-                textoLimpio === 'audio';
-
-            const esVideo =
-                btnIdLimpio === 'playvideo' ||
-                btnIdLimpio === 'play_video' ||
-                textoLimpio === 'playvideo' ||
-                textoLimpio === 'play_video' ||
-                textoLimpio === '2' ||
-                textoLimpio === '🎬 video' ||
-                textoLimpio === 'video';
-
-            if (esAudio || esVideo) {
-                const encontrada = buscarSesionPlay(msg);
-
-                if (encontrada) {
-                    const { clave, session } = encontrada;
-
-                    if (Date.now() - session.timestamp < 600000) {
-                        try {
-                            const rutaPlay = buscarArchivoPlay();
-
-                            if (rutaPlay) {
-                                const playMod = await import(rutaPlay);
-                                const { procesarAudio, procesarVideo } = playMod;
-
-                                const responder = {
-                                    texto: async (t) => {
-                                        try {
-                                            await sock.sendMessage(jid, { text: t }, { quoted: msg });
-                                        } catch {
-                                            await sock.sendMessage(jid, { text: t });
-                                        }
-                                    }
-                                };
-
-                                if (esAudio) {
-                                    await procesarAudio(sock, msg, session.video, responder);
-                                } else {
-                                    await procesarVideo(sock, msg, session.video, responder);
-                                }
-                            }
-
-                            delete global.playSessions[clave];
-                            return;
-                        } catch (e) {
-                            console.error('[PLAY-SESSION] Error:', e?.message || e);
-                        }
-                    } else {
-                        delete global.playSessions[clave];
-                    }
-                }
-            }
-        }
-
-        if (!fromMe) {
-            const fueTrivia = await manejarMensajeTrivia(sock, msg);
-            if (fueTrivia) return;
-
-            const fueTetris = await manejarMensajeTetris(sock, msg);
-            if (fueTetris) return;
-
-            const fueAdivinanza = await manejarMensajeAdivinanza(sock, msg);
-            if (fueAdivinanza) return;
-
-            const fueTTT = await manejarMensajeTTT(sock, msg);
-            if (fueTTT) return;
-
-            const fuePreguntaHot = await manejarMensajePreguntaHot(sock, msg);
-            if (fuePreguntaHot) return;
-        }
-
         if (!texto) return;
 
         if (/^\d+$/.test(texto.trim())) {
@@ -404,6 +279,23 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
         const fueMinijuego = await procesarMinijuegos(sock, msg);
         if (fueMinijuego) return;
 
+        if (!fromMe) {
+            const fueTrivia = await manejarMensajeTrivia(sock, msg);
+            if (fueTrivia) return;
+
+            const fueTetris = await manejarMensajeTetris(sock, msg);
+            if (fueTetris) return;
+
+            const fueAdivinanza = await manejarMensajeAdivinanza(sock, msg);
+            if (fueAdivinanza) return;
+
+            const fueTTT = await manejarMensajeTTT(sock, msg);
+            if (fueTTT) return;
+
+            const fuePreguntaHot = await manejarMensajePreguntaHot(sock, msg);
+            if (fuePreguntaHot) return;
+        }
+
         if (isGroup) {
             try {
                 const primaryDb = JSON.parse(
@@ -443,6 +335,7 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
             isGroup,
             jid,
             botJid,
+            nombreComando,
             responder: {
                 texto: async (text) => {
                     await sock.sendMessage(
