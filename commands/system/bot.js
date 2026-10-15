@@ -1,103 +1,78 @@
-// commands/system/bot.js
-// ============================================================
-// COMANDO: BOT ON / BOT OFF
-// ============================================================
-//
-// .bot on   -> activa el bot en el chat actual
-// .bot off  -> apaga los comandos del bot en el chat actual
-// .bot      -> muestra el estado actual
-//
-// Solo el Owner puede cambiar el estado.
-// El comando .bot permanece disponible aunque el chat esté OFF.
-// ============================================================
-
 import { esOwner } from '../../lib/owner.js';
-import { obtenerMetadata, esParticipanteAdmin } from '../../lib/grupos.js';
-import {
-    activarBot,
-    desactivarBot,
-    obtenerEstadoBot
-} from '../../lib/botEstado.js';
+import { botEstaActivo, setBotEstado, idDeBot } from '../../lib/botEstado.js';
+
+async function esAdminDeGrupo(sock, jid, userJid) {
+    try {
+        const meta = await sock.groupMetadata(jid);
+        const limpio = String(userJid).split('@')[0].split(':')[0];
+        const p = (meta?.participants || []).find(
+            x => String(x?.id || '').split('@')[0].split(':')[0] === limpio
+        );
+        return Boolean(p?.admin);
+    } catch {
+        return false;
+    }
+}
 
 export default {
     nombre: 'bot',
-    categoria: 'Sistema',
-    alias: ['estado', 'botestado'],
-    owner: true,
-    descripcion: 'Enciende o apaga los comandos del bot en este chat.',
+    categoria: 'System',
+    alias: [],
+    descripcion: 'Enciende o apaga SOLO este bot en el chat actual (no afecta a otros subbots).',
 
-    async ejecutar({ sock, jid, msg, args, responder, isGroup }) {
-        // El Owner puede usarlo en cualquier chat.
-        let tienePermiso = esOwner(msg);
+    ejecutar: async ({ sock, msg, argumento, responder, isGroup, jid, fromMe }) => {
 
-        // En grupos también se permite a los administradores.
-        if (!tienePermiso && isGroup) {
-            try {
-                const metadata = await obtenerMetadata(sock, jid);
-                const remitente =
-                    msg?.key?.participant ||
-                    msg?.key?.senderPn ||
-                    msg?.key?.participantAlt ||
-                    msg?.key?.remoteJid;
+        const remitente =
+            msg.key.participant ||
+            msg.key.senderPn ||
+            msg.key.participantAlt ||
+            msg.key.remoteJid;
 
-                tienePermiso = esParticipanteAdmin(
-                    metadata,
-                    remitente
-                );
-            } catch (error) {
-                console.error(
-                    '[BOT] Error comprobando administrador:',
-                    error?.message || error
-                );
-            }
-        }
+        const esOwnerOk =
+            Boolean(fromMe || msg.esOwnerAutomatico) ||
+            esOwner(msg, sock?.archivoOwner);
 
-        if (!tienePermiso) {
-            return responder.texto(
-                '🔐 *ACCESO DENEGADO*\n\n' +
-                'Solo el *Owner* o un *Administrador del grupo* puede usar este comando.'
+        const esAdminOk = esOwnerOk
+            ? false
+            : (isGroup ? await esAdminDeGrupo(sock, jid, remitente) : false);
+
+        if (!esOwnerOk && !esAdminOk) {
+            await responder.texto(
+                '🔐 *ACCESO DENEGADO*\n\nSolo el *Owner* o un *Administrador del grupo* puede usar este comando.'
             );
+            return;
         }
 
-        const accion = String(args?.[0] || '').toLowerCase().trim();
+        const botId = idDeBot(sock);
+        const modo = String(argumento || '').trim().toLowerCase();
 
-        if (!accion) {
-            const activo = obtenerEstadoBot(jid);
-
-            return responder.texto(
-                `🤖 *ESTADO DEL BOT*\n\n` +
-                `Estado: ${activo ? '🟢 ACTIVADO' : '🔴 APAGADO'}\n\n` +
-                `Uso:\n` +
-                `• *.bot on* — activar\n` +
-                `• *.bot off* — apagar`
-            );
-        }
-
-        if (accion === 'on' || accion === 'activar' || accion === 'encender') {
-            activarBot(jid);
-
-            return responder.texto(
-                '🟢 *BOT ACTIVADO*\n\n' +
-                'Los comandos vuelven a estar disponibles en este chat.'
-            );
-        }
-
-        if (accion === 'off' || accion === 'apagar' || accion === 'desactivar') {
-            desactivarBot(jid);
-
-            return responder.texto(
+        if (modo === 'off' || modo === 'apagar') {
+            setBotEstado(jid, false, botId);
+            await responder.texto(
                 '🔴 *BOT APAGADO*\n\n' +
                 'Los demás comandos quedan desactivados en este chat.\n' +
-                'El Owner todavía puede usar *.bot on* para activarlo.'
+                'El Owner todavía puede usar *.bot on* para activarlo.\n\n' +
+                `_(Solo este bot: ${botId})_`
             );
+            return;
         }
 
-        return responder.texto(
-            '❌ Opción no válida.\n\n' +
-            'Usa:\n' +
-            '• *.bot on*\n' +
-            '• *.bot off*\n' +
-            '• *.bot*'
+        if (modo === 'on' || modo === 'encender') {
+            setBotEstado(jid, true, botId);
+            await responder.texto(
+                '🟢 *BOT ACTIVADO*\n\n' +
+                'Los comandos vuelven a estar disponibles en este chat.\n\n' +
+                `_(Solo este bot: ${botId})_`
+            );
+            return;
+        }
+
+        const activo = botEstaActivo(jid, botId);
+
+        await responder.texto(
+            (activo ? '🟢 *BOT ACTIVADO*' : '🔴 *BOT APAGADO*') +
+            `\n\nEste bot (${botId}) está ${activo ? 'activo' : 'apagado'} en este chat.\n` +
+            'Usa *.bot on* / *.bot off* para cambiarlo.'
         );
     }
 };
