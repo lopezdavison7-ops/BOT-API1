@@ -19,7 +19,6 @@ const UAS = [
     'Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1'
 ];
 
-if (!global.playSessions) global.playSessions = {};
 if (!global.playCache) global.playCache = new Map();
 
 function getUA() {
@@ -94,7 +93,7 @@ async function buscarUna(query) {
 function videoDesdeURL(url) {
     const videoId = extraerVideoId(url);
     if (!videoId) throw new Error('URL de YouTube inválida');
-    
+
     return {
         videoId,
         url: `https://www.youtube.com/watch?v=${videoId}`,
@@ -177,12 +176,20 @@ async function descargarBuffer(url, timeoutMs) {
     return buffer;
 }
 
-async function procesarAudio(sock, msg, video, responder) {
+async function enviarAudio(sock, msg, video, responder) {
     try {
         await responder.texto('🎵 Descargando audio...');
 
         const info = await infoAudio(video.url);
         const buffer = await descargarBuffer(info.downloadUrl, 60000);
+
+        const caption =
+            '╭━━〔 🎵 𝐏𝐋𝐀𝐘 〕━━⬣\n' +
+            '┃ 🎧 *' + (info.titulo || video.titulo) + '*\n' +
+            '┃ 👤 ' + (info.autor || video.autor) + '\n' +
+            '┃ ⏱️ ' + video.duracion + '\n' +
+            '┃ 👀 ' + formatearVistas(video.vistas) + '\n' +
+            '╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣';
 
         await sock.sendMessage(msg.key.remoteJid, {
             audio: buffer,
@@ -200,7 +207,7 @@ async function procesarAudio(sock, msg, video, responder) {
     }
 }
 
-async function procesarVideo(sock, msg, video, responder) {
+async function enviarVideo(sock, msg, video, responder) {
     try {
         await responder.texto('🎬 Descargando video...');
 
@@ -246,14 +253,12 @@ async function procesarVideo(sock, msg, video, responder) {
 
 export default {
     nombre: 'play',
-    categoria: 'downloader',
+    categoria: 'Descargas',
     alias: ['p', 'musica', 'reproducir', 'song', 'play2', 'playvideo', 'video'],
-    descripcion: 'Busca en YouTube y elige audio o video con botones.',
-    uso: '.play <nombre o URL>',
+    descripcion: '.play → audio directo | .play2 → video directo',
 
-    ejecutar: async ({ sock, msg, argumento, responder, jid }) => {
+    ejecutar: async ({ sock, msg, argumento, responder, jid, nombreComando }) => {
         const query = String(argumento || '').trim();
-        const sender = msg.key.participant || msg.key.remoteJid;
 
         if (!query) {
             return await responder.texto(
@@ -262,58 +267,23 @@ export default {
                 '┃ ❌ Escribe el nombre o URL\n' +
                 '┃\n' +
                 '┃ 💡 Ejemplos:\n' +
-                '┃ ➪ .play hola\n' +
-                '┃ ➪ .play twice fancy\n' +
+                '┃ ➪ .play hola (audio)\n' +
+                '┃ ➪ .play2 hola (video)\n' +
                 '┃ ➪ .play https://youtu.be/...\n' +
-                '┃\n' +
-                '┃ 🎯 Elige con botones o\n' +
-                '┃    responde *1* o *2*\n' +
                 '┃\n' +
                 '╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣'
             );
         }
 
+        const esVideo = ['play2', 'playvideo', 'video'].includes(nombreComando);
+
         try {
             const video = await buscarYouTube(query);
 
-            global.playSessions[sender] = { jid, video, timestamp: Date.now() };
-
-            const ahora = Date.now();
-            for (const key of Object.keys(global.playSessions)) {
-                if (ahora - global.playSessions[key].timestamp > 600000) {
-                    delete global.playSessions[key];
-                }
-            }
-
-            const caption =
-                '╭━━〔 🎵 𝐏𝐋𝐀𝐘 〕━━⬣\n' +
-                '┃\n' +
-                '┃ 🎧 *' + video.titulo + '*\n' +
-                '┃\n' +
-                '┃ 👤 ' + video.autor + '\n' +
-                '┃ ⏱️ ' + video.duracion + '\n' +
-                '┃ 👀 ' + formatearVistas(video.vistas) + '\n' +
-                '┃\n' +
-                '┣━━〔 🎯 𝐄𝐋𝐈𝐆𝐄 〕━━⬣\n' +
-                '┃\n' +
-                '┃ 📲 Presiona el botón\n' +
-                '┃    o responde *1* o *2*\n' +
-                '┃\n' +
-                '╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣';
-
-            const botones = [
-                { name: 'quick_reply', buttonParamsJson: JSON.stringify({ display_text: '🎵 Audio', id: 'playaudio' }) },
-                { name: 'quick_reply', buttonParamsJson: JSON.stringify({ display_text: '🎬 Video', id: 'playvideo' }) }
-            ];
-
-            const mensajePreview = video.thumbnail
-                ? { image: { url: video.thumbnail }, caption, footer: '🎵 BOT-API • Elige formato', interactiveButtons: botones }
-                : { text: caption, footer: '🎵 BOT-API • Elige formato', interactiveButtons: botones };
-
-            try {
-                await sock.sendMessage(jid, mensajePreview, { quoted: msg });
-            } catch (e) {
-                await responder.texto(caption + '\n\nResponde *1* para audio o *2* para video');
+            if (esVideo) {
+                await enviarVideo(sock, msg, video, responder);
+            } else {
+                await enviarAudio(sock, msg, video, responder);
             }
 
         } catch (error) {
@@ -329,5 +299,3 @@ export default {
         }
     }
 };
-
-export { procesarAudio, procesarVideo };
