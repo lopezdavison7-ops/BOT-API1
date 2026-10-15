@@ -1,6 +1,6 @@
 import { loadCommands } from './controllers/cmdManager.js';
 import { procesarMinijuegos } from './lib/minijuegos.js';
-import { botEstaActivo } from './lib/botEstado.js';
+import { botEstaActivo, idDeBot } from './lib/botEstado.js';
 import { planDeSubbot } from './lib/usuariosWeb.js';
 import { manejarMensajeTrivia } from './lib/trivia.js';
 import { manejarMensajeTetris } from './lib/tetris.js';
@@ -380,7 +380,7 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
                 cmd.alias.includes('bot')
             );
 
-        if (!botEstaActivo(jid) && !esComandoBot) {
+        if (!botEstaActivo(jid, idDeBot(sock)) && !esComandoBot) {
             return;
         }
 
