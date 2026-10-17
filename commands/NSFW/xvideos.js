@@ -1,16 +1,4 @@
-// commands/descargas/xvideos.js
-// ============================================================
-// BOT-API — XVIDEOS (PREMIUM ONLY)
-// ============================================================
-
-import { obtenerPerfil } from '../../database/perfiles.js';
-
 const API_BUSCAR = 'https://api.delirius.online/search/xvideos?query=';
-
-function esPremium(id) {
-    const perfil = obtenerPerfil(id);
-    return Boolean(perfil?.premium);
-}
 
 async function descargarVideo(video, responder) {
     await responder.texto('⏳ Procesando video...');
@@ -77,38 +65,9 @@ export default {
     nombre: 'xvideos',
     categoria: 'Descargas',
     alias: ['xv', 'xvsearch', 'xvdl'],
-    descripcion: 'Busca y descarga videos de Xvideos (PREMIUM)',
+    descripcion: 'Busca y descarga videos de Xvideos',
     uso: '.xvideos <búsqueda>',
-    premium: true,
-
     ejecutar: async ({ msg, argumento, responder, jid }) => {
-        const id =
-            msg.key.participant ||
-            msg.key.participantAlt ||
-            msg.key.senderPn ||
-            msg.key.remoteJid;
-
-        if (!esPremium(id)) {
-            return await responder.texto(
-                '╭━━〔 🔒 𝐂𝐎𝐌𝐀𝐍𝐃𝐎 𝐏𝐑𝐄𝐌𝐈𝐔𝐌 〕━━⬣\n' +
-                '┃\n' +
-                '┃ ❌ Este comando es *PREMIUM*\n' +
-                '┃\n' +
-                '┃ 💎 Solo usuarios *premium*\n' +
-                '┃    pueden usarlo.\n' +
-                '┃\n' +
-                '┃ 📞 Contacta al dueño para\n' +
-                '┃    obtener premium:\n' +
-                '┃\n' +
-                '┃ 👤 *+505 7839 1933*\n' +
-                '┃\n' +
-                '┃ 💬 WhatsApp:\n' +
-                '┃ https://wa.me/50578391933\n' +
-                '┃\n' +
-                '╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣'
-            );
-        }
-
         const q = String(argumento || '').trim();
 
         if (!q) {
