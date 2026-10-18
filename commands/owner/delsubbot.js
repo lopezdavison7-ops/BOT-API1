@@ -15,19 +15,36 @@ async function esOwnerPrincipal(sock, msg) {
         msg.key.remoteJid
     ].filter(Boolean);
 
+    console.log('[DELSUBBOT] Candidatos:', candidatos);
+
     for (const c of candidatos) {
-        if (OWNERS.includes(numeroVisible(c))) return true;
+        const num = numeroVisible(c);
+        console.log(`[DELSUBBOT] Número visible: ${num}`);
+        if (OWNERS.includes(num)) {
+            console.log(`[DELSUBBOT] ✅ Owner reconocido: ${num}`);
+            return true;
+        }
     }
 
     try {
         for (const c of candidatos) {
             if (String(c).endsWith('@lid') && sock?.signalRepository?.lidMapper?.getPNForLid) {
                 const pn = await sock.signalRepository.lidMapper.getPNForLid(c);
-                if (pn && OWNERS.includes(numeroVisible(pn))) return true;
+                if (pn) {
+                    const num = numeroVisible(pn);
+                    console.log(`[DELSUBBOT] @lid resuelto a: ${num}`);
+                    if (OWNERS.includes(num)) {
+                        console.log(`[DELSUBBOT] ✅ Owner reconocido vía @lid: ${num}`);
+                        return true;
+                    }
+                }
             }
         }
-    } catch (e) {}
+    } catch (e) {
+        console.error('[DELSUBBOT] Error resolviendo @lid:', e.message);
+    }
 
+    console.log('[DELSUBBOT] ❌ No es owner');
     return false;
 }
 
