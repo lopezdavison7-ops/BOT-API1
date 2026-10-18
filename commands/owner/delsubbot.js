@@ -1,6 +1,6 @@
 import { eliminarSubbot, listarSubbots } from '../../lib/subbotManager.js';
 
-const OWNER_PRINCIPAL = '50578391933';
+const OWNERS = ['50578391933', '527443556928'];
 
 function numeroVisible(jid) {
     return String(jid).split('@')[0].split(':')[0].replace(/\D/g, '');
@@ -16,14 +16,14 @@ async function esOwnerPrincipal(sock, msg) {
     ].filter(Boolean);
 
     for (const c of candidatos) {
-        if (numeroVisible(c) === OWNER_PRINCIPAL) return true;
+        if (OWNERS.includes(numeroVisible(c))) return true;
     }
 
     try {
         for (const c of candidatos) {
             if (String(c).endsWith('@lid') && sock?.signalRepository?.lidMapper?.getPNForLid) {
                 const pn = await sock.signalRepository.lidMapper.getPNForLid(c);
-                if (pn && numeroVisible(pn) === OWNER_PRINCIPAL) return true;
+                if (pn && OWNERS.includes(numeroVisible(pn))) return true;
             }
         }
     } catch (e) {}
@@ -36,18 +36,18 @@ export default {
     categoria: 'Owner',
     alias: ['eliminarsubbot', 'borrarsubbot', 'removesubbot'],
     owner: true,
-    descripcion: 'Elimina un subbot del sistema. Solo Owner principal.',
+    descripcion: 'Elimina un subbot del sistema. Solo Owners.',
 
     ejecutar: async ({ sock, msg, argumento, responder, jid }) => {
 
         if (!(await esOwnerPrincipal(sock, msg))) {
             return await responder.texto(
-                '╭━━〔 🔒 𝐀𝐂𝐂𝐄𝐎 𝐃𝐄𝐄𝐆𝐀𝐎 〕━━⬣\n' +
+                '╭━━〔 🔒 𝐀𝐂𝐂𝐄𝐒𝐎 𝐃𝐄𝐍𝐄𝐆𝐀𝐃𝐎 〕━━⬣\n' +
                 '┃\n' +
                 '┃ ⛔ Este comando es exclusivo\n' +
-                '┃    para el *Owner principal*\n' +
+                '┃    para los *Owners*\n' +
                 '┃\n' +
-                '╰━━〔 ⚡ 𝐁𝐎-𝐀𝐏𝐈  〕━━⬣'
+                '╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 〕━━⬣'
             );
         }
 
@@ -55,8 +55,8 @@ export default {
 
         if (!numero || numero.length < 8) {
             return await responder.texto(
-                '╭━━〔 ❌ 𝐃𝐄𝐒𝐔𝐁𝐁𝐎𝐓 〕━━⬣\n' +
-                '\n' +
+                '╭━━〔 ❌ 𝐃𝐄𝐋𝐒𝐔𝐁𝐁𝐎𝐓 〕━━⬣\n' +
+                '┃\n' +
                 '┃ ❌ Debes indicar el número del subbot.\n' +
                 '┃\n' +
                 '┃ 💡 Uso: .delsubbot 5277829292\n' +
@@ -65,7 +65,6 @@ export default {
             );
         }
 
-        // Buscar el subbot por número
         const todos = listarSubbots();
         const subbot = todos.find(s => {
             const num = String(s.numero || s.numeroSubbot || '').replace(/\D/g, '');
@@ -74,11 +73,11 @@ export default {
 
         if (!subbot) {
             return await responder.texto(
-                '╭━━〔  𝐃𝐄𝐋𝐒𝐔𝐁𝐁𝐎𝐓 〕━━⬣\n' +
-                '\n' +
-                `┃  No existe un subbot con el número *${numero}*.\n` +
+                '╭━━〔 ⚠️ 𝐃𝐄𝐋𝐒𝐔𝐁𝐁𝐎𝐓 〕━━⬣\n' +
                 '┃\n' +
-                '┃  Verifica el número e intenta de nuevo.\n' +
+                `┃ ⚠️ No existe un subbot con el número *${numero}*.\n` +
+                '┃\n' +
+                '┃ 💡 Verifica el número e intenta de nuevo.\n' +
                 '┃\n' +
                 '╰━━━━━━━━━━━━━━━━⬣'
             );
@@ -89,7 +88,7 @@ export default {
 
         if (!eliminado) {
             return await responder.texto(
-                '╭━━〔 ❌ 𝐃𝐄𝐋𝐒𝐔𝐁𝐎𝐓 〕━━\n' +
+                '╭━━〔 ❌ 𝐃𝐄𝐋𝐒𝐔𝐁𝐁𝐎𝐓 〕━━⬣\n' +
                 '┃\n' +
                 '┃ ❌ No se pudo eliminar el subbot.\n' +
                 '┃    Puede que ya haya sido eliminado.\n' +
@@ -99,11 +98,11 @@ export default {
         }
 
         await responder.texto(
-            '╭━━〔 ✅ 𝐒𝐔𝐁𝐁𝐓 𝐄𝐋𝐈𝐌𝐈𝐍𝐀𝐃𝐎 〕━━⬣\n' +
+            '╭━━〔 ✅ 𝐒𝐔𝐁𝐁𝐎𝐓 𝐄𝐋𝐈𝐌𝐈𝐍𝐀𝐃𝐎 〕━━⬣\n' +
             '┃\n' +
             `┃ 🗑️ Subbot *+${numero}* eliminado.\n` +
             '┃\n' +
-            ' 📊 Sesión cerrada y datos borrados.\n' +
+            '┃ 📊 Sesión cerrada y datos borrados.\n' +
             '┃\n' +
             '╰━━━━━━━━━━━━━━━━⬣'
         );
