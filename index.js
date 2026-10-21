@@ -7,13 +7,18 @@ import pino from 'pino';
 import QRCode from 'qrcode';
 import NodeCache from 'node-cache';
 import readline from 'readline';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 import { handleMessage } from './handler.js';
 import { loadCommands } from './controllers/cmdManager.js';
-import { manejarDespedida } from './commands/group/despedida.js';
 import { registrarRutasSubbot } from './lib/subbotWeb.js';
 import { inicializarUsuariosWeb } from './lib/usuariosWeb.js';
 import { inicializarGestorSubbots, reconectarSubbotsGuardados } from './lib/subbotManager.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const baileys = baileysNS.default ?? baileysNS;
 const makeWASocket = typeof baileys === 'function' ? baileys : baileys.makeWASocket;
@@ -29,6 +34,7 @@ if (typeof makeWASocket !== 'function') {
 
 const PORT = Number(process.env.PORT || process.env.SUBBOT_PORT) || 3000;
 const AUTH_FOLDER = './auth_info';
+const RUTA_WB_DB = path.join(process.cwd(), 'database', 'bienvenida_despedida.json');
 
 let metodoConexion = null;
 let numeroTelefono = null;
@@ -232,150 +238,106 @@ async function iniciarBot() {
         sock.ev.on('creds.update', saveCreds);
 
         sock.ev.on('group-participants.update', async ({ id, participants, action }) => {
+            if (!id?.endsWith('@g.us')) return;
+            if (!Array.isArray(participants) || !participants.length) return;
 
-            if (action === 'remove') {
-                try {
-                    await manejarDespedida(sock, {
-                        id,
-                        participants,
-                        action
-                    });
-                } catch (error) {
-                    console.error(
-                        '[DESPEDIDA] Error:',
-                        error?.message || error
-                    );
+            let configGrupo = {};
+            try {
+                if (fs.existsSync(RUTA_WB_DB)) {
+                    const db = JSON.parse(fs.readFileSync(RUTA_WB_DB, 'utf8'));
+                    configGrupo = db[id] || {};
                 }
-
-                return;
+            } catch (e) {
+                console.error('[WELCOME/BYE] Error leyendo config:', e?.message);
             }
 
-            try {
-                if (action !== 'add' || !Array.isArray(participants) || participants.length === 0) return;
+            if (action === 'remove') {
+                if (!configGrupo.byeActivo) return;
 
                 let metadata;
-                try {
-                    metadata = await sock.groupMetadata(id);
-                } catch (error) {
-                    console.error('[BIENVENIDA] Error obteniendo grupo:', error?.message || error);
-                    return;
-                }
-
+                try { metadata = await sock.groupMetadata(id); } catch { return; }
                 const nombreGrupo = metadata?.subject || 'este grupo';
 
                 for (const participante of participants) {
-                    try {
-                        const participanteJid = typeof participante === 'string'
-                            ? participante
-                            : (participante?.phoneNumber || participante?.jid || participante?.id || participante?.participant || '');
+                    const pJid = typeof participante === 'string' ? participante : (participante?.jid || participante?.id || '');
+                    if (!pJid) continue;
 
-                        if (!participanteJid) continue;
+                    const numero = String(pJid).split('@')[0].split(':')[0].replace(/\D/g, '');
+                    let mensaje = configGrupo.byeMsg || `Adiós @${numero}, te extrañaremos en ${nombreGrupo} 👋`;
+                    mensaje = mensaje.replace(/@user/gi, `@${numero}`).replace(/@group/gi, nombreGrupo);
 
-                        const numeroLimpio = String(
-                            typeof participante === 'object'
-                                ? (participante?.phoneNumber || participante?.jid || participante?.id || '')
-                                : participante
-                        ).split('@')[0].split(':')[0].replace(/\D/g, '');
+                    let fotoPerfil = null;
+                    try { fotoPerfil = await sock.profilePictureUrl(pJid, 'image'); } catch {}
 
-                        const numeroMostrar = numeroLimpio ? `+${numeroLimpio}` : 'Usuario';
-
-                        let nombreUsuario = '';
-
+                    if (fotoPerfil) {
                         try {
-                            const participanteMetadata = metadata?.participants?.find(item => {
-                                const itemJid = typeof item === 'string'
-                                    ? item
-                                    : (item?.phoneNumber || item?.jid || item?.id || item?.participant || '');
-
-                                const limpioItem = String(itemJid).split('@')[0].split(':')[0];
-                                const limpioParticipante = String(participanteJid).split('@')[0].split(':')[0];
-
-                                return limpioItem === limpioParticipante;
-                            });
-
-                            const contactos = [
-                                sock?.store?.contacts?.[participanteJid],
-                                sock?.store?.contacts?.[participante?.id],
-                                sock?.store?.contacts?.[participante?.phoneNumber]
-                            ];
-
-                            const nombres = [
-                                participanteMetadata?.name,
-                                participanteMetadata?.notify,
-                                participanteMetadata?.verifiedName
-                            ];
-
-                            for (const contacto of contactos) {
-                                if (!contacto) continue;
-                                nombres.push(contacto.name, contacto.notify, contacto.verifiedName);
-                            }
-
-                            for (const nombre of nombres) {
-                                if (
-                                    typeof nombre === 'string' &&
-                                    nombre.trim() &&
-                                    nombre.trim() !== '[object Object]' &&
-                                    !/^\+?\d+$/.test(nombre.trim())
-                                ) {
-                                    nombreUsuario = nombre.trim();
-                                    break;
+                            const resp = await fetch(fotoPerfil);
+                            if (resp.ok) {
+                                const buffer = Buffer.from(await resp.arrayBuffer());
+                                if (buffer.length > 0) {
+                                    await sock.sendMessage(id, { image: buffer, caption: mensaje, mentions: [pJid] });
+                                    continue;
                                 }
                             }
-                        } catch (error) {
-                            console.error('[BIENVENIDA] Error obteniendo nombre:', error?.message || error);
-                        }
-
-                        if (!nombreUsuario || nombreUsuario === '[object Object]') {
-                            nombreUsuario = numeroMostrar;
-                        }
-
-                        if (nombreUsuario.length > 35) {
-                            nombreUsuario = nombreUsuario.slice(0, 35) + '…';
-                        }
-
-                        let fotoPerfil = null;
-
-                        try {
-                            fotoPerfil = await sock.profilePictureUrl(participanteJid, 'image');
-                        } catch {
-                            fotoPerfil = null;
-                        }
-
-                        const bienvenida = `╭━━━〔 ✨ *BIENVENIDO/A* 〕━━━╮\n┃\n┃ 👤 *${nombreUsuario}*\n┃\n┃ 🎉 ¡Bienvenido/a a\n┃    *${nombreGrupo}*!\n┃\n┃ 🤝 Esperamos que disfrutes\n┃    tu estancia con nosotros.\n┃\n┃ 📜 Escribe *.menu* para\n┃    ver los comandos.\n┃\n╰━━━━━━━━━━━━━━━━━━━━━━╯\n\n              🤖 *BOT-API*`;
-
-                        if (fotoPerfil) {
-                            try {
-                                const respuesta = await fetch(fotoPerfil);
-                                if (respuesta.ok) {
-                                    const datos = await respuesta.arrayBuffer();
-                                    const buffer = Buffer.from(datos);
-
-                                    if (buffer.length > 0) {
-                                        await sock.sendMessage(id, {
-                                            image: buffer,
-                                            caption: bienvenida,
-                                            mentions: [participanteJid]
-                                        });
-
-                                        continue;
-                                    }
-                                }
-                            } catch (error) {
-                                console.error('[BIENVENIDA] Error descargando foto:', error?.message || error);
-                            }
-                        }
-
-                        await sock.sendMessage(id, {
-                            text: bienvenida,
-                            mentions: [participanteJid]
-                        });
-
-                    } catch (error) {
-                        console.error('[BIENVENIDA] Error procesando usuario:', error?.message || error);
+                        } catch {}
                     }
+                    await sock.sendMessage(id, { text: mensaje, mentions: [pJid] });
                 }
-            } catch (error) {
-                console.error('[BIENVENIDA] Error general:', error?.message || error);
+                return;
+            }
+
+            if (action !== 'add') return;
+            if (!configGrupo.welcomeActivo) return;
+
+            let metadata;
+            try { metadata = await sock.groupMetadata(id); } catch { return; }
+            const nombreGrupo = metadata?.subject || 'este grupo';
+            const descGrupo = metadata?.desc || '';
+
+            for (const participante of participants) {
+                const pJid = typeof participante === 'string' ? participante : (participante?.phoneNumber || participante?.jid || participante?.id || '');
+                if (!pJid) continue;
+
+                const numero = String(pJid).split('@')[0].split(':')[0].replace(/\D/g, '');
+
+                let nombreUsuario = '';
+                try {
+                    const pMeta = metadata?.participants?.find(item => {
+                        const iJid = typeof item === 'string' ? item : (item?.jid || item?.id || '');
+                        return String(iJid).split('@')[0].split(':')[0] === String(pJid).split('@')[0].split(':')[0];
+                    });
+                    const contactos = [sock?.store?.contacts?.[pJid], sock?.store?.contacts?.[participante?.id]];
+                    const nombres = [pMeta?.name, pMeta?.notify, pMeta?.verifiedName];
+                    for (const c of contactos) { if (c) nombres.push(c.name, c.notify, c.verifiedName); }
+                    for (const n of nombres) {
+                        if (typeof n === 'string' && n.trim() && n.trim() !== '[object Object]' && !/^\+?\d+$/.test(n.trim())) {
+                            nombreUsuario = n.trim();
+                            break;
+                        }
+                    }
+                } catch {}
+                if (!nombreUsuario || nombreUsuario === '[object Object]') nombreUsuario = numero ? `+${numero}` : 'Usuario';
+                if (nombreUsuario.length > 35) nombreUsuario = nombreUsuario.slice(0, 35) + '…';
+
+                let mensaje = configGrupo.welcomeMsg || `¡Bienvenido/a @user a *${nombreGrupo}*! 🎉\nEscribe *.menu* para ver los comandos.`;
+                mensaje = mensaje.replace(/@user/gi, `@${numero}`).replace(/@group/gi, nombreGrupo).replace(/@desc/gi, descGrupo);
+
+                let fotoPerfil = null;
+                try { fotoPerfil = await sock.profilePictureUrl(pJid, 'image'); } catch {}
+
+                if (fotoPerfil) {
+                    try {
+                        const resp = await fetch(fotoPerfil);
+                        if (resp.ok) {
+                            const buffer = Buffer.from(await resp.arrayBuffer());
+                            if (buffer.length > 0) {
+                                await sock.sendMessage(id, { image: buffer, caption: mensaje, mentions: [pJid] });
+                                continue;
+                            }
+                        }
+                    } catch {}
+                }
+                await sock.sendMessage(id, { text: mensaje, mentions: [pJid] });
             }
         });
 
