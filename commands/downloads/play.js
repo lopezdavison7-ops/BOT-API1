@@ -233,7 +233,7 @@ async function enviarVideo(sock, msg, video, responder) {
         const autor = info.autor || video.autor;
 
         const caption =
-            '╭━━〔 🎬 𝐕𝐈𝐃𝐄𝐎 〕━━⬣\n' +
+            '╭━━〔 🎬 𝐕𝐈𝐃𝐄 〕━━⬣\n' +
             '┃ 🎧 *' + titulo + '*\n' +
             '┃ 👤 ' + autor + '\n' +
             '┃ 📊 ' + (info.formato || FORMATO_VIDEO) + ' | 📦 ' + tamañoMB + ' MB\n' +
