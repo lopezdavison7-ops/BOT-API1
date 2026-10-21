@@ -41,7 +41,6 @@ let numeroTelefono = null;
 let ultimoQR = null;
 let intentos = 0;
 let iniciando = false;
-
 let comandos = null;
 
 const app = Fastify({ logger: false });
@@ -183,6 +182,16 @@ async function generarCodigo(sock) {
     }
 }
 
+function obtenerFecha() {
+    const ahora = new Date();
+    const meses = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+    const d = String(ahora.getDate()).padStart(2, '0');
+    const m = meses[ahora.getMonth()];
+    const h = String(ahora.getHours()).padStart(2, '0');
+    const min = String(ahora.getMinutes()).padStart(2, '0');
+    return `${d}/${m} ${h}:${min}`;
+}
+
 async function iniciarBot() {
     if (iniciando) return;
     iniciando = true;
@@ -251,20 +260,35 @@ async function iniciarBot() {
                 console.error('[WELCOME/BYE] Error leyendo config:', e?.message);
             }
 
+            let metadata;
+            try { metadata = await sock.groupMetadata(id); } catch { return; }
+            const nombreGrupo = metadata?.subject || 'este grupo';
+            const descGrupo = metadata?.desc || '';
+            const membersCount = metadata?.participants?.length || 0;
+            const fecha = obtenerFecha();
+
             if (action === 'remove') {
                 if (!configGrupo.byeActivo) return;
-
-                let metadata;
-                try { metadata = await sock.groupMetadata(id); } catch { return; }
-                const nombreGrupo = metadata?.subject || 'este grupo';
 
                 for (const participante of participants) {
                     const pJid = typeof participante === 'string' ? participante : (participante?.jid || participante?.id || '');
                     if (!pJid) continue;
 
                     const numero = String(pJid).split('@')[0].split(':')[0].replace(/\D/g, '');
-                    let mensaje = configGrupo.byeMsg || `Adiós @${numero}, te extrañaremos en ${nombreGrupo} 👋`;
-                    mensaje = mensaje.replace(/@user/gi, `@${numero}`).replace(/@group/gi, nombreGrupo);
+                    const pMeta = metadata?.participants?.find(item => {
+                        const iJid = typeof item === 'string' ? item : (item?.jid || item?.id || '');
+                        return String(iJid).split('@')[0].split(':')[0] === numero;
+                    });
+                    let nombreUsuario = pMeta?.name || pMeta?.notify || pMeta?.verifiedName || '';
+                    if (!nombreUsuario || nombreUsuario === '[object Object]') nombreUsuario = numero ? `+${numero}` : 'Usuario';
+
+                    let mensaje = configGrupo.byeMsg || `Adiós @user, te extrañaremos en @group 👋`;
+                    mensaje = mensaje
+                        .replace(/@user/gi, `@${numero}`)
+                        .replace(/@name/gi, nombreUsuario)
+                        .replace(/@group/gi, nombreGrupo)
+                        .replace(/@members/gi, String(membersCount))
+                        .replace(/@date/gi, fecha);
 
                     let fotoPerfil = null;
                     try { fotoPerfil = await sock.profilePictureUrl(pJid, 'image'); } catch {}
@@ -289,11 +313,6 @@ async function iniciarBot() {
             if (action !== 'add') return;
             if (!configGrupo.welcomeActivo) return;
 
-            let metadata;
-            try { metadata = await sock.groupMetadata(id); } catch { return; }
-            const nombreGrupo = metadata?.subject || 'este grupo';
-            const descGrupo = metadata?.desc || '';
-
             for (const participante of participants) {
                 const pJid = typeof participante === 'string' ? participante : (participante?.phoneNumber || participante?.jid || participante?.id || '');
                 if (!pJid) continue;
@@ -304,7 +323,7 @@ async function iniciarBot() {
                 try {
                     const pMeta = metadata?.participants?.find(item => {
                         const iJid = typeof item === 'string' ? item : (item?.jid || item?.id || '');
-                        return String(iJid).split('@')[0].split(':')[0] === String(pJid).split('@')[0].split(':')[0];
+                        return String(iJid).split('@')[0].split(':')[0] === numero;
                     });
                     const contactos = [sock?.store?.contacts?.[pJid], sock?.store?.contacts?.[participante?.id]];
                     const nombres = [pMeta?.name, pMeta?.notify, pMeta?.verifiedName];
@@ -320,7 +339,13 @@ async function iniciarBot() {
                 if (nombreUsuario.length > 35) nombreUsuario = nombreUsuario.slice(0, 35) + '…';
 
                 let mensaje = configGrupo.welcomeMsg || `¡Bienvenido/a @user a *${nombreGrupo}*! 🎉\nEscribe *.menu* para ver los comandos.`;
-                mensaje = mensaje.replace(/@user/gi, `@${numero}`).replace(/@group/gi, nombreGrupo).replace(/@desc/gi, descGrupo);
+                mensaje = mensaje
+                    .replace(/@user/gi, `@${numero}`)
+                    .replace(/@name/gi, nombreUsuario)
+                    .replace(/@group/gi, nombreGrupo)
+                    .replace(/@members/gi, String(membersCount))
+                    .replace(/@date/gi, fecha)
+                    .replace(/@desc/gi, descGrupo);
 
                 let fotoPerfil = null;
                 try { fotoPerfil = await sock.profilePictureUrl(pJid, 'image'); } catch {}
@@ -346,14 +371,12 @@ async function iniciarBot() {
 
             if (qr && metodoConexion === '2') {
                 ultimoQR = qr;
-
                 console.log('\n======================================\n📱 QR GENERADO\n======================================\nAbre la ruta /qr de tu servidor y escanea el QR.\n======================================\n');
             }
 
             if (connection === 'open') {
                 intentos = 0;
                 ultimoQR = null;
-
                 console.log('\n======================================\n          ✅ BOT CONECTADO\n======================================\n');
                 console.log('🤖 BOT-API está funcionando.\n🎉 Sistema de bienvenida: ACTIVO\n👋 Sistema de despedida: DISPONIBLE\n🖼️ Foto de perfil: ACTIVA\n\nPrueba: .ping o .menu\n');
             }
@@ -375,9 +398,7 @@ async function iniciarBot() {
 
                 intentos++;
                 const espera = Math.min(5000 * intentos, 60000);
-
                 console.log(`🔄 Reconectando en ${espera / 1000}s...`);
-
                 setTimeout(() => {
                     iniciando = false;
                     iniciarBot();
@@ -387,12 +408,9 @@ async function iniciarBot() {
 
         sock.ev.on('messages.upsert', async ({ messages }) => {
             const m = messages[0];
-
             if (!m.message || m.key.remoteJid === 'status@broadcast') return;
-
             const listaComandos = Array.from(comandos.values())
                 .filter((v, i, self) => self.indexOf(v) === i);
-
             handleMessage(sock, m, '.', listaComandos);
         });
 
@@ -405,16 +423,11 @@ async function iniciarBot() {
 
     } catch (error) {
         iniciando = false;
-
         console.error('\n❌ Error iniciando BOT-API:');
         console.error(error?.message || error);
-
         intentos++;
-
         const espera = Math.min(5000 * intentos, 60000);
-
         console.log(`🔄 Reintentando en ${espera / 1000}s...`);
-
         setTimeout(iniciarBot, espera);
     }
 }
