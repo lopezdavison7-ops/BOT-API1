@@ -9,6 +9,10 @@ import { manejarMensajeTTT } from './lib/ttt.js';
 import { manejarMensajePreguntaHot } from './lib/preguntashot.js';
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const PREFIJO = '.';
 const RUTA_AFK = path.join(process.cwd(), 'database', 'afk.json');
@@ -17,18 +21,60 @@ const RUTA_PRIMARY = path.join(process.cwd(), 'database', 'primary.json');
 let comandos = null;
 let botJid = null;
 
+// ═══ SESIONES PLAY ═══
+let _rutaPlayCache = null;
+function buscarArchivoPlay() {
+    if (_rutaPlayCache) return _rutaPlayCache;
+    const base = path.join(__dirname, 'commands');
+    function buscarEn(dir) {
+        try {
+            const entries = fs.readdirSync(dir, { withFileTypes: true });
+            for (const entry of entries) {
+                const fullPath = path.join(dir, entry.name);
+                if (entry.isDirectory()) {
+                    const r = buscarEn(fullPath);
+                    if (r) return r;
+                } else if (entry.isFile() && entry.name.toLowerCase() === 'play.js') {
+                    _rutaPlayCache = fullPath;
+                    return fullPath;
+                }
+            }
+        } catch (e) {}
+        return null;
+    }
+    return buscarEn(base);
+}
+
+function buscarSesionPlay(msg) {
+    const sessions = global.playSessions;
+    if (!sessions) return null;
+    const candidatos = [
+        msg.key?.participant, msg.key?.senderPn,
+        msg.key?.participantAlt, msg.key?.remoteJidAlt,
+        msg.key?.sender, msg.key?.remoteJid
+    ];
+    for (const c of candidatos) {
+        if (c && sessions[c]) return { clave: c, session: sessions[c] };
+    }
+    return null;
+}
+// ══════════════════════════════
+
 function soloNumeroHandler(jid) {
     return String(jid || '').split('@')[0].split(':')[0].replace(/\D/g, '');
 }
+
 function leerAfk() {
     try { return JSON.parse(fs.readFileSync(RUTA_AFK, 'utf8')); } catch (e) { return {}; }
 }
+
 function guardarAfk(db) {
     try {
         fs.mkdirSync(path.dirname(RUTA_AFK), { recursive: true });
         fs.writeFileSync(RUTA_AFK, JSON.stringify(db, null, 2), 'utf8');
     } catch (e) { console.error('[AFK] Error guardando:', e?.message); }
 }
+
 function fmtTiempo(ms) {
     const s = Math.max(0, Math.floor(ms / 1000));
     const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
@@ -37,9 +83,11 @@ function fmtTiempo(ms) {
     if (m) return m + 'm ' + sec + 's';
     return sec + 's';
 }
+
 function limpiarNombre(n) {
     return String(n || '').replace(/[*_~`┃╭╰⬣@\n\r]/g, '').trim().slice(0, 25);
 }
+
 function leerPrimary() {
     try {
         if (!fs.existsSync(RUTA_PRIMARY)) return {};
@@ -52,21 +100,17 @@ function extraerButtonId(msg) {
         if (msg.message?.buttonsResponseMessage?.selectedButtonId) {
             return msg.message.buttonsResponseMessage.selectedButtonId;
         }
-
         if (msg.message?.templateButtonReplyMessage?.selectedId) {
             return msg.message.templateButtonReplyMessage.selectedId;
         }
-
         if (msg.message?.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson) {
             const json = JSON.parse(msg.message.interactiveResponseMessage.nativeFlowResponseMessage.paramsJson);
             return json.id || json.selected_row_id || null;
         }
-
         if (msg.message?.listResponseMessage?.singleSelectReply?.selectedRowId) {
             return msg.message.listResponseMessage.singleSelectReply.selectedRowId;
         }
     } catch (e) {}
-
     return null;
 }
 
@@ -79,14 +123,40 @@ export async function cargarComandosHandler() {
 }
 
 export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []) {
-    try {
-        if (!comandos) {
-            comandos = await loadCommands();
-        }
 
-        if (!botJid) {
-            botJid = sock.user.id;
-        }
+    // ═══ INTERCEPTORES (Preparados para estilos futuros, transparentes por ahora) ═══
+    if (!sock._stylePatched) {
+        const originalSend = sock.sendMessage.bind(sock);
+        sock.sendMessage = async function (jid, message, options = {}) {
+            // TODO: Descomentar cuando se agregue lib/estilos.js
+            // if (message?.text) message.text = aplicarEstilo(message.text);
+            // if (message?.caption) message.caption = aplicarEstilo(message.caption);
+            return originalSend(jid, message, options);
+        };
+        sock._stylePatched = true;
+    }
+
+    if (!sock._relayPatched) {
+        const originalRelay = sock.relayMessage.bind(sock);
+        sock.relayMessage = async function (jid, message, options = {}) {
+            // TODO: Descomentar cuando se agregue lib/estilos.js
+            // if (message?.extendedTextMessage?.text)
+            //     message.extendedTextMessage.text = aplicarEstilo(message.extendedTextMessage.text);
+            // if (message?.imageMessage?.caption)
+            //     message.imageMessage.caption = aplicarEstilo(message.imageMessage.caption);
+            // if (message?.videoMessage?.caption)
+            //     message.videoMessage.caption = aplicarEstilo(message.videoMessage.caption);
+            // if (message?.interactiveMessage?.body?.text)
+            //     message.interactiveMessage.body.text = aplicarEstilo(message.interactiveMessage.body.text);
+            return originalRelay(jid, message, options);
+        };
+        sock._relayPatched = true;
+    }
+    // ═══════════════════════════════════════════════════════════════════════════════
+
+    try {
+        if (!comandos) comandos = await loadCommands();
+        if (!botJid) botJid = sock.user.id;
 
         if (!msg.message) return;
         if (msg.key.remoteJid === 'status@broadcast') return;
@@ -95,14 +165,10 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
         const fromMe = msg.key.fromMe;
         const isGroup = jid?.endsWith('@g.us');
 
-        if (sock?.esSubbot && fromMe) {
-            msg.esOwnerAutomatico = true;
-        }
+        if (sock?.esSubbot && fromMe) msg.esOwnerAutomatico = true;
+        if (sock?.archivoOwner && !msg.archivoOwnerOverride) msg.archivoOwnerOverride = sock.archivoOwner;
 
-        if (sock?.archivoOwner && !msg.archivoOwnerOverride) {
-            msg.archivoOwnerOverride = sock.archivoOwner;
-        }
-
+        // ── SISTEMA AFK ──
         if (!fromMe) {
             try {
                 const textoMsg = msg.message?.conversation || msg.message?.extendedTextMessage?.text || '';
@@ -157,51 +223,64 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
             }
         }
 
+        // ── EXTRACCIÓN DE TEXTO Y BOTONES ──
         let texto = '';
-        if (msg.message?.conversation) {
-            texto = msg.message.conversation;
-        } else if (msg.message?.extendedTextMessage?.text) {
-            texto = msg.message.extendedTextMessage.text;
-        } else if (msg.message?.imageMessage?.caption) {
-            texto = msg.message.imageMessage.caption;
-        } else if (msg.message?.videoMessage?.caption) {
-            texto = msg.message.videoMessage.caption;
-        } else if (
-            msg.message?.interactiveResponseMessage
-                ?.nativeFlowResponseMessage
-                ?.paramsJson
-        ) {
+        if (msg.message?.conversation) texto = msg.message.conversation;
+        else if (msg.message?.extendedTextMessage?.text) texto = msg.message.extendedTextMessage.text;
+        else if (msg.message?.imageMessage?.caption) texto = msg.message.imageMessage.caption;
+        else if (msg.message?.videoMessage?.caption) texto = msg.message.videoMessage.caption;
+        else if (msg.message?.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson) {
             try {
-                const json = JSON.parse(
-                    msg.message
-                        .interactiveResponseMessage
-                        .nativeFlowResponseMessage
-                        .paramsJson
-                );
+                const json = JSON.parse(msg.message.interactiveResponseMessage.nativeFlowResponseMessage.paramsJson);
                 texto = json.id || json.display_text || '';
             } catch {}
-        } else if (
-            msg.message?.listResponseMessage
-                ?.singleSelectReply
-                ?.selectedRowId
-        ) {
-            texto =
-                msg.message
-                    .listResponseMessage
-                    .singleSelectReply
-                    .selectedRowId;
+        } else if (msg.message?.listResponseMessage?.singleSelectReply?.selectedRowId) {
+            texto = msg.message.listResponseMessage.singleSelectReply.selectedRowId;
         }
 
         const buttonId = extraerButtonId(msg);
+
+        // ═══ SESIONES PLAY (Audio/Video interactivo) ═══
+        if (!fromMe && (texto || buttonId)) {
+            const textoLimpio = String(texto || '').trim().toLowerCase();
+            const btnIdLimpio = String(buttonId || '').trim().toLowerCase();
+
+            const esAudio = ['playaudio', 'play_audio', '1', '🎵 audio', 'audio'].includes(btnIdLimpio)
+                || ['playaudio', 'play_audio', '1', '🎵 audio', 'audio'].includes(textoLimpio);
+            const esVideo = ['playvideo', 'play_video', '2', '🎬 video', 'video'].includes(btnIdLimpio)
+                || ['playvideo', 'play_video', '2', '🎬 video', 'video'].includes(textoLimpio);
+
+            if (esAudio || esVideo) {
+                const encontrada = buscarSesionPlay(msg);
+                if (encontrada && Date.now() - encontrada.session.timestamp < 600000) {
+                    try {
+                        const rutaPlay = buscarArchivoPlay();
+                        if (rutaPlay) {
+                            const playMod = await import(rutaPlay);
+                            const responder = {
+                                texto: async (t) => { await sock.sendMessage(jid, { text: t }, { quoted: msg }); }
+                            };
+                            if (esAudio) await playMod.procesarAudio(sock, msg, encontrada.session.video, responder);
+                            else await playMod.procesarVideo(sock, msg, encontrada.session.video, responder);
+                        }
+                        delete global.playSessions[encontrada.clave];
+                        return;
+                    } catch (e) {
+                        console.error('[PLAY-SESSION] Error:', e?.message);
+                    }
+                } else if (encontrada) {
+                    delete global.playSessions[encontrada.clave];
+                }
+            }
+        }
+        // ═══════════════════════════════════════════════════════════════════════════
 
         if (!texto) return;
 
         if (/^\d+$/.test(texto.trim())) {
             const num = parseInt(texto.trim(), 10);
             const mapa = global.menuMap?.[jid];
-            if (mapa && mapa[num]) {
-                texto = `${prefijo}menu ${mapa[num]}`;
-            }
+            if (mapa && mapa[num]) texto = `${prefijo}menu ${mapa[num]}`;
         }
 
         if (!texto.startsWith(prefijo)) return;
@@ -210,68 +289,31 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
         if (!sinPrefijo) return;
 
         const indiceEspacio = sinPrefijo.search(/\s/);
-        const nombreComando = (
-            indiceEspacio === -1
-                ? sinPrefijo
-                : sinPrefijo.slice(0, indiceEspacio)
-        ).toLowerCase();
+        const nombreComando = (indiceEspacio === -1 ? sinPrefijo : sinPrefijo.slice(0, indiceEspacio)).toLowerCase();
+        const argumento = indiceEspacio === -1 ? '' : sinPrefijo.slice(indiceEspacio + 1).trim();
+        const args = argumento ? argumento.split(/\s+/).filter(Boolean) : [];
 
-        const argumento =
-            indiceEspacio === -1
-                ? ''
-                : sinPrefijo.slice(indiceEspacio + 1).trim();
-
-        const args = argumento
-            ? argumento.split(/\s+/).filter(Boolean)
-            : [];
-
-        if (
-            nombreComando === 'menu' &&
-            args[0] &&
-            !isNaN(args[0])
-        ) {
+        if (nombreComando === 'menu' && args[0] && !isNaN(args[0])) {
             const num = parseInt(args[0], 10);
             const mapa = global.menuMap?.[jid];
-            if (mapa && mapa[num]) {
-                args[0] = mapa[num];
-            }
+            if (mapa && mapa[num]) args[0] = mapa[num];
         }
 
         let cmd = comandos.get(nombreComando);
         if (!cmd) {
-            cmd = [...comandos.values()].find(
-                c =>
-                    Array.isArray(c.alias) &&
-                    c.alias.includes(nombreComando)
-            );
+            cmd = [...comandos.values()].find(c => Array.isArray(c.alias) && c.alias.includes(nombreComando));
         }
-
         if (!cmd) return;
 
-        const esComandoBot =
-            nombreComando === 'bot' ||
-            (
-                Array.isArray(cmd.alias) &&
-                cmd.alias.includes('bot')
-            );
-
-        if (!botEstaActivo(jid, idDeBot(sock)) && !esComandoBot) {
-            return;
-        }
+        const esComandoBot = nombreComando === 'bot' || (Array.isArray(cmd.alias) && cmd.alias.includes('bot'));
+        if (!botEstaActivo(jid, idDeBot(sock)) && !esComandoBot) return;
 
         if (cmd.premium && sock?.esSubbot) {
             const plan = planDeSubbot(sock.subbotId, sock.numeroSubbot);
             if (plan !== 'premium') {
-                await sock.sendMessage(
-                    jid,
-                    {
-                        text:
-                            '💎 *COMANDO PREMIUM*\n\n' +
-                            'Este comando es exclusivo de subbots con plan PREMIUM.\n\n' +
-                            '👑 Contacta al admin del bot para subir tu plan.'
-                    },
-                    { quoted: msg }
-                );
+                await sock.sendMessage(jid, {
+                    text: '💎 *COMANDO PREMIUM*\n\nEste comando es exclusivo de subbots con plan PREMIUM.\n\n👑 Contacta al admin del bot para subir tu plan.'
+                }, { quoted: msg });
                 return;
             }
         }
@@ -280,37 +322,21 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
         if (fueMinijuego) return;
 
         if (!fromMe) {
-            const fueTrivia = await manejarMensajeTrivia(sock, msg);
-            if (fueTrivia) return;
-
-            const fueTetris = await manejarMensajeTetris(sock, msg);
-            if (fueTetris) return;
-
-            const fueAdivinanza = await manejarMensajeAdivinanza(sock, msg);
-            if (fueAdivinanza) return;
-
-            const fueTTT = await manejarMensajeTTT(sock, msg);
-            if (fueTTT) return;
-
-            const fuePreguntaHot = await manejarMensajePreguntaHot(sock, msg);
-            if (fuePreguntaHot) return;
+            if (await manejarMensajeTrivia(sock, msg)) return;
+            if (await manejarMensajeTetris(sock, msg)) return;
+            if (await manejarMensajeAdivinanza(sock, msg)) return;
+            if (await manejarMensajeTTT(sock, msg)) return;
+            if (await manejarMensajePreguntaHot(sock, msg)) return;
         }
 
         if (isGroup) {
             try {
-                const primaryDb = JSON.parse(
-                    fs.existsSync(RUTA_PRIMARY)
-                        ? fs.readFileSync(RUTA_PRIMARY, 'utf8')
-                        : '{}'
-                );
+                const primaryDb = JSON.parse(fs.existsSync(RUTA_PRIMARY) ? fs.readFileSync(RUTA_PRIMARY, 'utf8') : '{}');
                 const config = primaryDb[jid];
-
                 if (config?.activo && config?.botNumero) {
                     const miNumero = soloNumeroHandler(botJid);
                     const primarioNumero = config.botNumero;
-
                     console.log('[PRIMARY] Mi número:', miNumero, '| Primario:', primarioNumero);
-
                     if (miNumero !== primarioNumero) {
                         const comandosExcepcion = ['setprimary', 'primario', 'setprimario', 'primary'];
                         if (!comandosExcepcion.includes(nombreComando)) {
@@ -319,92 +345,27 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
                         }
                     }
                 }
-            } catch (e) {
-                console.error('[PRIMARY] Error:', e?.message || e);
-            }
+            } catch (e) { console.error('[PRIMARY] Error:', e?.message || e); }
         }
 
         await cmd.ejecutar({
-            sock,
-            msg,
-            args,
-            argumento,
-            listaComandos,
-            prefijo,
-            fromMe,
-            isGroup,
-            jid,
-            botJid,
-            nombreComando,
+            sock, msg, args, argumento, listaComandos, prefijo, fromMe, isGroup, jid, botJid, nombreComando,
             responder: {
-                texto: async (text) => {
-                    await sock.sendMessage(
-                        jid,
-                        { text },
-                        { quoted: msg }
-                    );
-                },
-                imagen: async (img, caption = '') => {
-                    await sock.sendMessage(
-                        jid,
-                        {
-                            image: img,
-                            caption
-                        },
-                        { quoted: msg }
-                    );
-                },
-                video: async (vid, caption = '') => {
-                    await sock.sendMessage(
-                        jid,
-                        {
-                            video: vid,
-                            caption
-                        },
-                        { quoted: msg }
-                    );
-                },
-                audio: async (aud, ptt = true) => {
-                    await sock.sendMessage(
-                        jid,
-                        {
-                            audio: aud,
-                            mimetype: 'audio/mpeg',
-                            ptt
-                        },
-                        { quoted: msg }
-                    );
-                },
-                reaccion: async (emoji) => {
-                    await sock.sendMessage(jid, {
-                        react: {
-                            text: emoji,
-                            key: msg.key
-                        }
-                    });
-                }
+                texto: async (text) => { await sock.sendMessage(jid, { text }, { quoted: msg }); },
+                imagen: async (img, caption = '') => { await sock.sendMessage(jid, { image: img, caption }, { quoted: msg }); },
+                video: async (vid, caption = '') => { await sock.sendMessage(jid, { video: vid, caption }, { quoted: msg }); },
+                audio: async (aud, ptt = true) => { await sock.sendMessage(jid, { audio: aud, mimetype: 'audio/mpeg', ptt }, { quoted: msg }); },
+                reaccion: async (emoji) => { await sock.sendMessage(jid, { react: { text: emoji, key: msg.key } }); }
             }
         });
-    } catch (error) {
-        console.error(
-            '[HANDLER] Error al manejar mensaje:',
-            error
-        );
 
+    } catch (error) {
+        console.error('[HANDLER] Error al manejar mensaje:', error);
         if (!msg.key.fromMe) {
             try {
-                await sock.sendMessage(
-                    msg.key.remoteJid,
-                    {
-                        text: `❌ Error: ${error.message}`
-                    },
-                    { quoted: msg }
-                );
+                await sock.sendMessage(msg.key.remoteJid, { text: `❌ Error: ${error.message}` }, { quoted: msg });
             } catch (sendError) {
-                console.error(
-                    '[HANDLER] No se pudo enviar el error:',
-                    sendError?.message || sendError
-                );
+                console.error('[HANDLER] No se pudo enviar el error:', sendError?.message || sendError);
             }
         }
     }
