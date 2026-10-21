@@ -90,15 +90,29 @@ async function buscarUna(query) {
     return normVideo(v);
 }
 
-function videoDesdeURL(url) {
+async function videoDesdeURL(url) {
     const videoId = extraerVideoId(url);
     if (!videoId) throw new Error('URL de YouTube inválida');
 
+    const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+    
+    // Obtener metadatos del video usando la API de búsqueda
+    try {
+        const data = await getJSON(`${API_BUSCAR}?q=${videoId}`, 10000);
+        if ((data.status === true || data.estado === true) && data.data && data.data.length > 0) {
+            const v = data.data.find(x => x.videoId === videoId) || data.data[0];
+            return normVideo(v);
+        }
+    } catch (error) {
+        console.log('[PLAY] No se pudieron obtener metadatos de la URL, usando valores por defecto');
+    }
+
+    // Si falla la búsqueda, devolver valores básicos
     return {
         videoId,
-        url: `https://www.youtube.com/watch?v=${videoId}`,
-        titulo: 'Cargando...',
-        thumbnail: '',
+        url: videoUrl,
+        titulo: 'Video de YouTube',
+        thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
         duracion: '0:00',
         vistas: 0,
         autor: 'Desconocido'
@@ -110,7 +124,7 @@ async function buscarYouTube(query) {
 
     if (esURL(query)) {
         console.log(`[PLAY] 📎 URL directa detectada: ${query}`);
-        return videoDesdeURL(query);
+        return await videoDesdeURL(query);
     }
 
     const cached = global.playCache.get(key);
