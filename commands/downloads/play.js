@@ -10,6 +10,7 @@ const API_MP4 = 'https://api.delirius.online/download/ytmp4';
 const FORMATO_VIDEO = '360p';
 
 const CACHE_TTL = 5 * 60 * 1000;
+const SESION_TTL = 10 * 60 * 1000;
 const MODIFICADORES = ['remix', 'official audio', 'song', 'lyrics'];
 const GENERICAS = new Set(['hola', 'hey', 'hi', 'test', 'xd', 'ok', 'no', 'si', 'que', 'aaa', 'a']);
 
@@ -45,6 +46,15 @@ function extraerVideoId(url) {
     const regex = /(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
     const match = url.match(regex);
     return match ? match[1] : null;
+}
+
+function limpiarSesionesViejas() {
+    const ahora = Date.now();
+    for (const k of Object.keys(global.playSessions)) {
+        if (ahora - global.playSessions[k].timestamp > SESION_TTL) {
+            delete global.playSessions[k];
+        }
+    }
 }
 
 async function getJSON(url, timeoutMs) {
@@ -97,7 +107,7 @@ async function videoDesdeURL(url) {
     if (!videoId) throw new Error('URL de YouTube inválida');
 
     const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
-
+    
     try {
         const data = await getJSON(`${API_BUSCAR}?q=${videoId}`, 10000);
         if ((data.status === true || data.estado === true) && data.data && data.data.length > 0) {
@@ -278,15 +288,31 @@ async function enviarConBotones(sock, msg, video, jid) {
         '┃ ⏱️ ' + video.duracion + '\n' +
         '┃ 👀 ' + formatearVistas(video.vistas) + '\n' +
         '┃\n' +
-        '┃ 🎯 Elige el formato:\n' +
+        '┃ 🎯 Elige con botones o\n' +
+        '┃    responde *1* o *2*\n' +
         '┃\n' +
-        '╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣';
+        '╰━━〔  𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣';
 
-    const sessionKey = msg.key.participant || msg.key.senderPn || msg.key.participantAlt || msg.key.remoteJid;
-    global.playSessions[sessionKey] = {
-        video,
-        timestamp: Date.now()
-    };
+    limpiarSesionesViejas();
+
+    // ══ GUARDAR LA SESIÓN CON VARIAS CLAVES ══
+    // Así cualquier usuario del chat que presione el botón la activa,
+    // no solo el que escribió el comando.
+    const ahora = Date.now();
+    const claves = new Set();
+    
+    const claveUsuario = msg.key.participant || msg.key.senderPn || msg.key.participantAlt || msg.key.remoteJid;
+    if (claveUsuario) claves.add(claveUsuario);
+    if (msg.key.senderPn) claves.add(msg.key.senderPn);
+    if (msg.key.participantAlt) claves.add(msg.key.participantAlt);
+    if (msg.key.remoteJidAlt) claves.add(msg.key.remoteJidAlt);
+    if (jid) claves.add(jid); // clave del chat: cualquiera del chat puede elegir
+
+    for (const k of claves) {
+        global.playSessions[k] = { video, timestamp: ahora };
+    }
+
+    console.log(`[PLAY] 🔑 Sesión guardada con claves:`, [...claves].join(' | '));
 
     let imagenMedia = null;
     try {
@@ -309,7 +335,7 @@ async function enviarConBotones(sock, msg, video, jid) {
                 },
                 interactiveMessage: {
                     body: { text: caption },
-                    footer: { text: '⚡ BOT-API ⚡' },
+                    footer: { text: '⚡ BOT-API ' },
                     header: imagenMedia?.imageMessage ? {
                         imageMessage: imagenMedia.imageMessage,
                         hasMediaAttachment: true
@@ -322,14 +348,14 @@ async function enviarConBotones(sock, msg, video, jid) {
                             {
                                 name: 'quick_reply',
                                 buttonParamsJson: JSON.stringify({
-                                    display_text: '🎵 Audio MP3',
+                                    display_text: '🎵 Audio',
                                     id: 'play_audio'
                                 })
                             },
                             {
                                 name: 'quick_reply',
                                 buttonParamsJson: JSON.stringify({
-                                    display_text: '🎬 Video MP4',
+                                    display_text: '🎬 Video',
                                     id: 'play_video'
                                 })
                             }
@@ -373,29 +399,26 @@ export default {
             );
         }
 
-        // Solo .play2, .playvideo, .video envían directo sin botones
         const enviarDirecto = ['play2', 'playvideo', 'video'].includes(nombreComando);
 
         try {
             const video = await buscarYouTube(query);
 
             if (enviarDirecto) {
-                // Envío directo de video (solo con play2/playvideo/video)
                 await procesarVideo(sock, msg, video, responder);
             } else {
-                // CUALQUIER OTRO caso (.play, .p, .musica, etc.) muestra botones
                 await enviarConBotones(sock, msg, video, jid);
             }
 
         } catch (error) {
             console.error('[PLAY] Error:', error?.message || error);
             await responder.texto(
-                '╭━━〔 ❌ 𝐄𝐑𝐑𝐎𝐑 〕━━⬣\n' +
+                '╭━━〔  𝐄𝐑𝐑𝐎𝐑 〕━━⬣\n' +
                 '┃ ⚠️ ' + (error?.message || 'Error desconocido') + '\n' +
                 '┃\n' +
                 '┃ 💡 Intenta con otro nombre\n' +
                 '┃    o verifica tu conexión.\n' +
-                '╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣'
+                '╰━━〔  𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣'
             );
         }
     }
