@@ -21,7 +21,6 @@ const RUTA_PRIMARY = path.join(process.cwd(), 'database', 'primary.json');
 let comandos = null;
 let botJid = null;
 
-// ═══ SESIONES PLAY ═══
 let _rutaPlayCache = null;
 function buscarArchivoPlay() {
     if (_rutaPlayCache) return _rutaPlayCache;
@@ -58,7 +57,6 @@ function buscarSesionPlay(msg) {
     }
     return null;
 }
-// ══════════════════════════════
 
 function soloNumeroHandler(jid) {
     return String(jid || '').split('@')[0].split(':')[0].replace(/\D/g, '');
@@ -124,13 +122,9 @@ export async function cargarComandosHandler() {
 
 export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []) {
 
-    // ═══ INTERCEPTORES (Preparados para estilos futuros, transparentes por ahora) ═══
     if (!sock._stylePatched) {
         const originalSend = sock.sendMessage.bind(sock);
         sock.sendMessage = async function (jid, message, options = {}) {
-            // TODO: Descomentar cuando se agregue lib/estilos.js
-            // if (message?.text) message.text = aplicarEstilo(message.text);
-            // if (message?.caption) message.caption = aplicarEstilo(message.caption);
             return originalSend(jid, message, options);
         };
         sock._stylePatched = true;
@@ -139,20 +133,10 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
     if (!sock._relayPatched) {
         const originalRelay = sock.relayMessage.bind(sock);
         sock.relayMessage = async function (jid, message, options = {}) {
-            // TODO: Descomentar cuando se agregue lib/estilos.js
-            // if (message?.extendedTextMessage?.text)
-            //     message.extendedTextMessage.text = aplicarEstilo(message.extendedTextMessage.text);
-            // if (message?.imageMessage?.caption)
-            //     message.imageMessage.caption = aplicarEstilo(message.imageMessage.caption);
-            // if (message?.videoMessage?.caption)
-            //     message.videoMessage.caption = aplicarEstilo(message.videoMessage.caption);
-            // if (message?.interactiveMessage?.body?.text)
-            //     message.interactiveMessage.body.text = aplicarEstilo(message.interactiveMessage.body.text);
             return originalRelay(jid, message, options);
         };
         sock._relayPatched = true;
     }
-    // ═══════════════════════════════════════════════════════════════════════════════
 
     try {
         if (!comandos) comandos = await loadCommands();
@@ -168,7 +152,6 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
         if (sock?.esSubbot && fromMe) msg.esOwnerAutomatico = true;
         if (sock?.archivoOwner && !msg.archivoOwnerOverride) msg.archivoOwnerOverride = sock.archivoOwner;
 
-        // ── SISTEMA AFK ──
         if (!fromMe) {
             try {
                 const textoMsg = msg.message?.conversation || msg.message?.extendedTextMessage?.text || '';
@@ -223,7 +206,6 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
             }
         }
 
-        // ── EXTRACCIÓN DE TEXTO Y BOTONES ──
         let texto = '';
         if (msg.message?.conversation) texto = msg.message.conversation;
         else if (msg.message?.extendedTextMessage?.text) texto = msg.message.extendedTextMessage.text;
@@ -240,8 +222,7 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
 
         const buttonId = extraerButtonId(msg);
 
-        // ═══ SESIONES PLAY (Audio/Video interactivo) ═══
-        if (!fromMe && (texto || buttonId)) {
+        if (texto || buttonId) {
             const textoLimpio = String(texto || '').trim().toLowerCase();
             const btnIdLimpio = String(buttonId || '').trim().toLowerCase();
 
@@ -273,7 +254,6 @@ export async function handleMessage(sock, msg, prefijo = '.', listaComandos = []
                 }
             }
         }
-        // ═══════════════════════════════════════════════════════════════════════════
 
         if (!texto) return;
 
