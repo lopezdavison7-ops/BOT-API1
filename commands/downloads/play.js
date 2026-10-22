@@ -40,13 +40,22 @@ function parsearDuracion(duracionStr) {
     if (!duracionStr) return 0;
     const str = String(duracionStr).trim();
     const partes = str.split(':').map(p => parseInt(p) || 0);
-    if (partes.length === 3) {
-        return partes[0] * 3600 + partes[1] * 60 + partes[2];
-    } else if (partes.length === 2) {
-        return partes[0] * 60 + partes[1];
-    } else {
-        return parseInt(str) || 0;
-    }
+    if (partes.length === 3) return partes[0] * 3600 + partes[1] * 60 + partes[2];
+    if (partes.length === 2) return partes[0] * 60 + partes[1];
+    return parseInt(str) || 0;
+}
+
+function detectarFormatoAudio(buffer) {
+    if (buffer.length < 100) return null;
+    if (buffer[0] === 0x49 && buffer[1] === 0x44 && buffer[2] === 0x33) return 'audio/mpeg';
+    if (buffer[0] === 0xFF && (buffer[1] & 0xE0) === 0xE0) return 'audio/mpeg';
+    if (buffer.length > 12 && buffer.slice(4, 8).toString('ascii') === 'ftyp') return 'audio/mp4';
+    if (buffer[0] === 0x4F && buffer[1] === 0x67 && buffer[2] === 0x67) return 'audio/ogg';
+    return null;
+}
+
+function esMp4Valido(buffer) {
+    return buffer.length > 12 && buffer.slice(4, 8).toString('ascii') === 'ftyp';
 }
 
 function esURL(input) {
@@ -102,7 +111,7 @@ function normInfo(i) {
         autor: i.author || i.autor || 'Desconocido',
         thumbnail: i.image || i.imagen || '',
         formato: i.format || i.formato || '',
-        downloadUrl: i.download || i.descarga
+        downloadUrl: i.download || i.descarga || i.url || i.link
     };
 }
 
@@ -201,16 +210,53 @@ async function infoVideo(url) {
     return info;
 }
 
-async function descargarBuffer(url, timeoutMs) {
-    const res = await fetch(url, {
-        agent: AGENTE,
-        headers: { 'User-Agent': getUA(), 'Accept': '*/*' },
-        signal: AbortSignal.timeout(timeoutMs)
-    });
-    if (!res.ok) throw new Error('Descarga HTTP ' + res.status);
-    const buffer = Buffer.from(await res.arrayBuffer());
-    if (!buffer.length) throw new Error('Buffer vacío');
-    return buffer;
+async function descargarMedia(url, timeoutMs, tipo) {
+    let ultimoError = null;
+
+    for (let intento = 1; intento <= 3; intento++) {
+        try {
+            const res = await fetch(url, {
+                agent: AGENTE,
+                headers: {
+                    'User-Agent': getUA(),
+                    'Accept': '*/*',
+                    'Referer': 'https://api.delirius.online/',
+                    'Origin': 'https://api.delirius.online'
+                },
+                signal: AbortSignal.timeout(timeoutMs)
+            });
+
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+
+            const contentType = (res.headers.get('content-type') || '').split(';')[0].trim();
+            const buffer = Buffer.from(await res.arrayBuffer());
+
+            if (!buffer.length) throw new Error('Buffer vacío');
+
+            if (tipo === 'audio') {
+                const mime = detectarFormatoAudio(buffer);
+                console.log(`[PLAY-AUDIO] Intento ${intento}: ct=${contentType} bytes=${buffer.length} formato=${mime}`);
+                if (!mime) throw new Error('Audio no reconocido (ct=' + contentType + ')');
+                return { buffer, mimetype: mime };
+            }
+
+            if (tipo === 'video') {
+                const ok = esMp4Valido(buffer);
+                console.log(`[PLAY-VIDEO] Intento ${intento}: ct=${contentType} bytes=${buffer.length} mp4=${ok}`);
+                if (!ok) throw new Error('Video no reconocido (ct=' + contentType + ')');
+                return { buffer, mimetype: 'video/mp4' };
+            }
+
+            return { buffer, mimetype: contentType || 'application/octet-stream' };
+
+        } catch (e) {
+            ultimoError = e;
+            console.log(`[PLAY-${tipo}] Intento ${intento} falló: ${e.message}`);
+            if (intento < 3) await new Promise(r => setTimeout(r, 1200 * intento));
+        }
+    }
+
+    throw ultimoError || new Error('Descarga fallida');
 }
 
 export async function procesarAudio(sock, msg, video, responder) {
@@ -219,20 +265,22 @@ export async function procesarAudio(sock, msg, video, responder) {
         await responder.texto('🎵 Descargando audio...');
 
         const info = await infoAudio(video.url);
-        const buffer = await descargarBuffer(info.downloadUrl, 60000);
+        const { buffer, mimetype } = await descargarMedia(info.downloadUrl, 60000, 'audio');
 
         const segundos = parsearDuracion(video.duracion);
+        const extension = mimetype === 'audio/mp4' ? 'm4a' : (mimetype === 'audio/ogg' ? 'ogg' : 'mp3');
 
         await sock.sendMessage(jid, {
             audio: buffer,
-            mimetype: 'audio/mpeg',
+            mimetype: mimetype,
+            fileName: `audio.${extension}`,
             ptt: false,
             seconds: segundos,
             contextInfo: {
                 externalAdReply: {
                     title: info.titulo || video.titulo,
                     body: info.autor || video.autor,
-                    thumbnailUrl: video.thumbnail,
+                    thumbnailUrl: video.thumbnail || info.thumbnail,
                     mediaType: 2,
                     mediaUrl: video.url,
                     sourceUrl: video.url
@@ -242,7 +290,7 @@ export async function procesarAudio(sock, msg, video, responder) {
     } catch (error) {
         console.error('[PLAY-AUDIO] Error:', error?.message || error);
         await responder.texto(
-            '╭━━〔 ❌ 𝐄𝐑𝐑𝐎𝐑 〕━━⬣\n' +
+            '╭━━〔  𝐄𝐑𝐑𝐎𝐑 〕━━⬣\n' +
             '┃ No se pudo enviar el audio.\n' +
             '┃\n' +
             '┃ ⚠️ ' + (error?.message || 'Error desconocido') + '\n' +
@@ -257,14 +305,14 @@ export async function procesarVideo(sock, msg, video, responder) {
         await responder.texto('🎬 Descargando video...');
 
         const info = await infoVideo(video.url);
-        const buffer = await descargarBuffer(info.downloadUrl, 120000);
+        const { buffer } = await descargarMedia(info.downloadUrl, 120000, 'video');
 
         const tamañoMB = (buffer.length / 1024 / 1024).toFixed(2);
         const titulo = info.titulo || video.titulo;
         const autor = info.autor || video.autor;
 
         const caption =
-            '╭━━〔 🎬 𝐕𝐈𝐃𝐄𝐎 〕━━⬣\n' +
+            '╭━━〔 🎬 𝐕𝐈𝐄𝐎 〕━━⬣\n' +
             '┃ 🎧 *' + titulo + '*\n' +
             '┃ 👤 ' + autor + '\n' +
             '┃ 📊 ' + (info.formato || FORMATO_VIDEO) + ' | 📦 ' + tamañoMB + ' MB\n' +
@@ -287,7 +335,7 @@ export async function procesarVideo(sock, msg, video, responder) {
     } catch (error) {
         console.error('[PLAY-VIDEO] Error:', error?.message || error);
         await responder.texto(
-            '╭━━〔 ❌ 𝐄𝐑𝐑𝐎𝐑 〕━━⬣\n' +
+            '╭━━〔 ❌ 𝐄𝐑𝐎𝐑 〕━━⬣\n' +
             '┃ No se pudo enviar el video.\n' +
             '┃\n' +
             '┃ ⚠️ ' + (error?.message || 'Error desconocido') + '\n' +
