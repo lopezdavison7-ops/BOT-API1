@@ -1,5 +1,4 @@
 import 'dotenv/config';
-
 import * as baileysNS from 'baileys';
 import { Boom } from '@hapi/boom';
 import Fastify from 'fastify';
@@ -10,7 +9,6 @@ import readline from 'readline';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-
 import { handleMessage } from './handler.js';
 import { loadCommands } from './controllers/cmdManager.js';
 import { registrarRutasSubbot } from './lib/subbotWeb.js';
@@ -19,7 +17,6 @@ import { inicializarGestorSubbots, reconectarSubbotsGuardados } from './lib/subb
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
 const baileys = baileysNS.default ?? baileysNS;
 const makeWASocket = typeof baileys === 'function' ? baileys : baileys.makeWASocket;
 const useMultiFileAuthState = baileysNS.useMultiFileAuthState ?? baileys.useMultiFileAuthState;
@@ -28,9 +25,7 @@ const fetchLatestBaileysVersion = baileysNS.fetchLatestBaileysVersion ?? baileys
 const Browsers = baileysNS.Browsers ?? baileys.Browsers;
 const makeCacheableSignalKeyStore = baileysNS.makeCacheableSignalKeyStore ?? baileys.makeCacheableSignalKeyStore;
 
-if (typeof makeWASocket !== 'function') {
-    throw new Error('No se pudo cargar makeWASocket desde Baileys.');
-}
+if (typeof makeWASocket !== 'function') throw new Error('No se pudo cargar makeWASocket desde Baileys.');
 
 const PORT = Number(process.env.PORT || process.env.SUBBOT_PORT) || 3000;
 const AUTH_FOLDER = './auth_info';
@@ -44,107 +39,41 @@ let iniciando = false;
 let comandos = null;
 
 const app = Fastify({ logger: false });
+const msgRetryCounterCache = new NodeCache({ stdTTL: 3600, checkperiod: 600 });
+const esperar = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-process.on('unhandledRejection', (razon) => {
-    console.error('[PROCESS] unhandledRejection:', razon);
-});
-
-process.on('uncaughtException', (error) => {
-    console.error('[PROCESS] uncaughtException:', error?.stack || error?.message || error);
-});
-
-process.on('SIGTERM', () => {
-    console.log('🛑 SIGTERM recibido, cerrando...');
-    process.exit(0);
-});
-
-process.on('SIGINT', () => {
-    console.log('🛑 SIGINT recibido, cerrando...');
-    process.exit(0);
-});
-
+process.on('unhandledRejection', r => console.error('[PROCESS] unhandledRejection:', r));
+process.on('uncaughtException', e => console.error('[PROCESS] uncaughtException:', e?.stack || e));
+process.on('SIGTERM', () => { console.log('🛑 SIGTERM recibido'); process.exit(0); });
+process.on('SIGINT', () => { console.log('🛑 SIGINT recibido'); process.exit(0); });
 setInterval(() => {}, 60000);
 
 inicializarUsuariosWeb();
 registrarRutasSubbot(app);
 
-app.get('/', async (req, reply) => {
-    return reply.redirect('/subbot');
-});
-
+app.get('/', async (req, reply) => reply.redirect('/subbot'));
 app.get('/qr', async (req, reply) => {
-    if (!ultimoQR) {
-        return reply.type('text/html').send(`
-            <!doctype html>
-            <html>
-            <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BOT-API</title></head>
-            <body style="background:#0b0b12;color:#fff;font-family:Arial;text-align:center;padding:40px;">
-                <h2>🤖 BOT-API</h2>
-                <p>No hay un QR disponible.</p>
-                <p>Actualiza la página en unos segundos.</p>
-            </body>
-            </html>
-        `);
-    }
+    if (!ultimoQR) return reply.type('text/html').send('<html><body style="background:#0b0b12;color:#fff;text-align:center;padding:40px"><h2>🤖 BOT-API</h2><p>No hay QR disponible.</p></body></html>');
     try {
-        const imagen = await QRCode.toDataURL(ultimoQR);
-        return reply.type('text/html').send(`
-            <!doctype html>
-            <html>
-            <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BOT-API QR</title></head>
-            <body style="background:linear-gradient(135deg,#080812,#15152b);color:#fff;font-family:Arial;text-align:center;padding:30px;">
-                <h1>🤖 BOT-API</h1>
-                <h2>📱 Escanea el QR</h2>
-                <p>WhatsApp → Dispositivos vinculados</p>
-                <img src="${imagen}" style="width:300px;max-width:90%;background:#fff;padding:10px;border-radius:20px;">
-                <p>Si el QR expira, actualiza la página.</p>
-            </body>
-            </html>
-        `);
-    } catch (error) {
-        console.error('Error creando QR:', error?.message || error);
-        return reply.type('text/html').send('<h2>Error generando QR.</h2>');
-    }
+        const img = await QRCode.toDataURL(ultimoQR);
+        return reply.type('text/html').send(`<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="background:linear-gradient(135deg,#080812,#15152b);color:#fff;text-align:center;padding:30px"><h1>🤖 BOT-API</h1><img src="${img}" style="width:300px;background:#fff;padding:10px;border-radius:20px"><p>Escanea con WhatsApp → Dispositivos vinculados</p></body></html>`);
+    } catch (e) { return reply.type('text/html').send('<h2>Error generando QR.</h2>'); }
 });
-
-app.listen({ port: PORT, host: '0.0.0.0' })
-    .then(() => console.log(`🌐 Servidor activo en puerto ${PORT}`))
-    .catch(error => console.error('❌ Error iniciando servidor:', error?.message || error));
-
-const msgRetryCounterCache = new NodeCache({ stdTTL: 3600, checkperiod: 600 });
-const esperar = ms => new Promise(resolve => setTimeout(resolve, ms));
+app.listen({ port: PORT, host: '0.0.0.0' }).then(() => console.log(`🌐 Servidor activo en puerto ${PORT}`)).catch(e => console.error('❌ Error servidor:', e?.message));
 
 function preguntarOpcion() {
     return new Promise(resolve => {
         const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-        console.log('\n======================================\n             🤖 BOT-API\n======================================\n');
-        console.log('¿Cómo quieres conectar el bot?\n');
-        console.log('1️⃣ Código de emparejamiento');
-        console.log('2️⃣ Código QR\n');
-        rl.question('👉 Escribe 1 o 2: ', respuesta => {
-            rl.close();
-            const opcion = respuesta.trim();
-            if (opcion !== '1' && opcion !== '2') {
-                console.log('❌ Opción inválida.');
-                resolve(preguntarOpcion());
-                return;
-            }
-            resolve(opcion);
-        });
+        console.log('\n======================================\n             🤖 BOT-API\n======================================\n\n¿Cómo quieres conectar?\n1️⃣ Código de emparejamiento\n2️⃣ Código QR\n');
+        rl.question('👉 Escribe 1 o 2: ', r => { rl.close(); resolve(r.trim()); });
     });
 }
 
 function preguntarNumero() {
     return new Promise(resolve => {
         const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-        console.log('\n======================================\n📱 NÚMERO DE WHATSAPP\n======================================\n');
-        console.log('Escribe tu número con código de país.');
-        console.log('Ejemplo Nicaragua: 50588888888');
-        console.log('⚠️ Solo números, sin +, espacios ni guiones.\n');
-        rl.question('👉 Número: ', numero => {
-            rl.close();
-            resolve(numero.trim().replace(/\D/g, ''));
-        });
+        console.log('\n======================================\n📱 NÚMERO DE WHATSAPP\n======================================\nEjemplo: 50588888888\n⚠️ Solo números, sin + ni espacios.\n');
+        rl.question('👉 Número: ', n => { rl.close(); resolve(n.trim().replace(/\D/g, '')); });
     });
 }
 
@@ -152,15 +81,9 @@ async function configurarConexion() {
     metodoConexion = await preguntarOpcion();
     if (metodoConexion === '1') {
         numeroTelefono = await preguntarNumero();
-        if (!numeroTelefono || numeroTelefono.length < 8 || numeroTelefono.length > 15) {
-            console.log('❌ Número inválido.');
-            return configurarConexion();
-        }
+        if (!numeroTelefono || numeroTelefono.length < 8 || numeroTelefono.length > 15) { console.log('❌ Número inválido.'); return configurarConexion(); }
         console.log('\n✅ Número aceptado.\n⏳ Preparando código...');
-    } else {
-        numeroTelefono = null;
-        console.log('\n📱 Preparando conexión mediante QR...');
-    }
+    } else { numeroTelefono = null; console.log('\n📱 Preparando conexión QR...'); }
 }
 
 async function generarCodigo(sock) {
@@ -168,28 +91,18 @@ async function generarCodigo(sock) {
     try {
         await esperar(3000);
         if (sock.authState?.creds?.registered) return;
-        console.log('\n🔐 Generando código...');
         const codigo = await sock.requestPairingCode(numeroTelefono);
-        if (!codigo) throw new Error('Baileys no devolvió el código.');
-        const codigoLimpio = String(codigo).replace(/[^a-zA-Z0-9]/g, '');
-        const codigoMostrar = codigoLimpio.match(/.{1,4}/g)?.join('-') || codigoLimpio;
-        console.log('\n======================================\n       🔐 CÓDIGO DE EMPAREJAMIENTO\n======================================\n');
-        console.log(`             ${codigoMostrar}`);
-        console.log('\n======================================\n📱 En WhatsApp:\nDispositivos vinculados\n→ Vincular un dispositivo\n→ Vincular con número de teléfono\n');
-        console.log('Introduce el código mostrado arriba.\n======================================\n');
-    } catch (error) {
-        console.error('\n❌ Error generando código:', error?.message || error);
-    }
+        if (!codigo) throw new Error('Baileys no devolvió código');
+        const limpio = String(codigo).replace(/[^a-zA-Z0-9]/g, '');
+        const mostrar = limpio.match(/.{1,4}/g)?.join('-') || limpio;
+        console.log(`\n======================================\n       🔐 CÓDIGO DE EMPAREJAMIENTO\n======================================\n             ${mostrar}\n======================================\n📱 WhatsApp → Dispositivos vinculados → Vincular con número\n`);
+    } catch (e) { console.error('\n❌ Error generando código:', e?.message); }
 }
 
 function obtenerFecha() {
-    const ahora = new Date();
-    const meses = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-    const d = String(ahora.getDate()).padStart(2, '0');
-    const m = meses[ahora.getMonth()];
-    const h = String(ahora.getHours()).padStart(2, '0');
-    const min = String(ahora.getMinutes()).padStart(2, '0');
-    return `${d}/${m} ${h}:${min}`;
+    const a = new Date();
+    const m = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+    return `${String(a.getDate()).padStart(2,'0')}/${m[a.getMonth()]} ${String(a.getHours()).padStart(2,'0')}:${String(a.getMinutes()).padStart(2,'0')}`;
 }
 
 async function iniciarBot() {
@@ -198,237 +111,144 @@ async function iniciarBot() {
     try {
         console.log('\n🚀 Iniciando BOT-API...');
         const { state, saveCreds } = await useMultiFileAuthState(AUTH_FOLDER);
-        if (!state.creds.registered) {
-            await configurarConexion();
-        } else {
-            metodoConexion = 'sesion';
-            console.log('\n✅ Sesión existente encontrada.\n🔄 Conectando automáticamente...');
-        }
+        if (!state.creds.registered) await configurarConexion();
+        else { metodoConexion = 'sesion'; console.log('\n✅ Sesión existente.\n🔄 Conectando...'); }
+
         let version;
-        try {
-            const resultado = await fetchLatestBaileysVersion();
-            version = resultado.version;
-        } catch {
-            console.warn('⚠️ No se pudo obtener la versión de Baileys.');
-        }
+        try { version = (await fetchLatestBaileysVersion()).version; } catch {}
 
         comandos = await loadCommands();
         console.log(`📦 Comandos cargados: ${comandos.size}`);
-
         inicializarGestorSubbots(() => comandos);
-
-        reconectarSubbotsGuardados().catch(error => {
-            console.error('[SUBBOT] ❌ Error reconectando sesiones:', error?.message || error);
-        });
+        reconectarSubbotsGuardados().catch(e => console.error('[SUBBOT] ❌ Error reconexión:', e?.message));
 
         const logger = pino({ level: 'debug' });
-        const opciones = {
-            logger,
-            printQRInTerminal: false,
-            mobile: false,
+        const sock = makeWASocket({
+            logger, printQRInTerminal: false, mobile: false,
             browser: Browsers ? Browsers.macOS('Chrome') : ['Chrome', 'Chrome', '121.0.0.0'],
-            auth: {
-                creds: state.creds,
-                keys: makeCacheableSignalKeyStore ? makeCacheableSignalKeyStore(state.keys, logger) : state.keys
-            },
-            markOnlineOnConnect: true,
-            syncFullHistory: false,
-            msgRetryCounterCache,
-            connectTimeoutMs: 60000,
-            defaultQueryTimeoutMs: 30000,
-            mediaUploadTimeoutMs: 120000,
-            keepAliveIntervalMs: 20000,
-            emitOwnEvents: true,
-            getMessage: async () => undefined
-        };
-        if (version) opciones.version = version;
-        const sock = makeWASocket(opciones);
+            auth: { creds: state.creds, keys: makeCacheableSignalKeyStore ? makeCacheableSignalKeyStore(state.keys, logger) : state.keys },
+            markOnlineOnConnect: true, syncFullHistory: false, msgRetryCounterCache,
+            connectTimeoutMs: 60000, defaultQueryTimeoutMs: 30000, mediaUploadTimeoutMs: 120000,
+            keepAliveIntervalMs: 20000, emitOwnEvents: true, getMessage: async () => undefined,
+            ...(version && { version })
+        });
 
         sock.ev.on('creds.update', saveCreds);
 
         sock.ev.on('group-participants.update', async ({ id, participants, action }) => {
-            if (!id?.endsWith('@g.us')) return;
-            if (!Array.isArray(participants) || !participants.length) return;
+            if (!id?.endsWith('@g.us') || !Array.isArray(participants) || !participants.length) return;
 
             let configGrupo = {};
             try {
-                if (fs.existsSync(RUTA_WB_DB)) {
-                    const db = JSON.parse(fs.readFileSync(RUTA_WB_DB, 'utf8'));
-                    configGrupo = db[id] || {};
-                }
-            } catch (e) {
-                console.error('[WELCOME/BYE] Error leyendo config:', e?.message);
-            }
+                if (fs.existsSync(RUTA_WB_DB)) configGrupo = JSON.parse(fs.readFileSync(RUTA_WB_DB, 'utf8'))[id] || {};
+            } catch (e) { console.error('[WELCOME/BYE] Error config:', e?.message); }
+
+            const welcomeActivo = configGrupo.welcomeActivo === true;
+            const byeActivo = configGrupo.byeActivo === true;
+            if (!welcomeActivo && !byeActivo) return;
 
             let metadata;
-            try { metadata = await sock.groupMetadata(id); } catch { return; }
+            try { metadata = await sock.groupMetadata(id); } catch (e) { console.error(`[WELCOME/BYE] Metadata error ${id}:`, e?.message); return; }
+
             const nombreGrupo = metadata?.subject || 'este grupo';
             const descGrupo = metadata?.desc || '';
             const membersCount = metadata?.participants?.length || 0;
             const fecha = obtenerFecha();
 
-            if (action === 'remove') {
-                if (!configGrupo.byeActivo) return;
-
-                for (const participante of participants) {
-                    const pJid = typeof participante === 'string' ? participante : (participante?.jid || participante?.id || '');
-                    if (!pJid) continue;
-
-                    const numero = String(pJid).split('@')[0].split(':')[0].replace(/\D/g, '');
-                    const pMeta = metadata?.participants?.find(item => {
-                        const iJid = typeof item === 'string' ? item : (item?.jid || item?.id || '');
-                        return String(iJid).split('@')[0].split(':')[0] === numero;
-                    });
-                    let nombreUsuario = pMeta?.name || pMeta?.notify || pMeta?.verifiedName || '';
-                    if (!nombreUsuario || nombreUsuario === '[object Object]') nombreUsuario = numero ? `+${numero}` : 'Usuario';
-
-                    let mensaje = configGrupo.byeMsg || `Adiós @user, te extrañaremos en @group 👋`;
-                    mensaje = mensaje
-                        .replace(/@user/gi, `@${numero}`)
-                        .replace(/@name/gi, nombreUsuario)
-                        .replace(/@group/gi, nombreGrupo)
-                        .replace(/@members/gi, String(membersCount))
-                        .replace(/@date/gi, fecha);
-
-                    let fotoPerfil = null;
-                    try { fotoPerfil = await sock.profilePictureUrl(pJid, 'image'); } catch {}
-
-                    if (fotoPerfil) {
-                        try {
-                            const resp = await fetch(fotoPerfil);
-                            if (resp.ok) {
-                                const buffer = Buffer.from(await resp.arrayBuffer());
-                                if (buffer.length > 0) {
-                                    await sock.sendMessage(id, { image: buffer, caption: mensaje, mentions: [pJid] });
-                                    continue;
-                                }
-                            }
-                        } catch {}
-                    }
-                    await sock.sendMessage(id, { text: mensaje, mentions: [pJid] });
-                }
-                return;
-            }
-
-            if (action !== 'add') return;
-            if (!configGrupo.welcomeActivo) return;
-
             for (const participante of participants) {
-                const pJid = typeof participante === 'string' ? participante : (participante?.phoneNumber || participante?.jid || participante?.id || '');
+                const pJid = typeof participante === 'string' ? participante : (participante?.jid || participante?.id || participante?.phoneNumber || '');
                 if (!pJid) continue;
 
                 const numero = String(pJid).split('@')[0].split(':')[0].replace(/\D/g, '');
-
                 let nombreUsuario = '';
                 try {
                     const pMeta = metadata?.participants?.find(item => {
                         const iJid = typeof item === 'string' ? item : (item?.jid || item?.id || '');
                         return String(iJid).split('@')[0].split(':')[0] === numero;
                     });
-                    const contactos = [sock?.store?.contacts?.[pJid], sock?.store?.contacts?.[participante?.id]];
                     const nombres = [pMeta?.name, pMeta?.notify, pMeta?.verifiedName];
-                    for (const c of contactos) { if (c) nombres.push(c.name, c.notify, c.verifiedName); }
+                    [sock?.store?.contacts?.[pJid], sock?.store?.contacts?.[participante?.id]].forEach(c => { if (c) nombres.push(c.name, c.notify, c.verifiedName); });
                     for (const n of nombres) {
-                        if (typeof n === 'string' && n.trim() && n.trim() !== '[object Object]' && !/^\+?\d+$/.test(n.trim())) {
-                            nombreUsuario = n.trim();
-                            break;
-                        }
+                        if (typeof n === 'string' && n.trim() && n.trim() !== '[object Object]' && !/^\+?\d+$/.test(n.trim())) { nombreUsuario = n.trim(); break; }
                     }
                 } catch {}
                 if (!nombreUsuario || nombreUsuario === '[object Object]') nombreUsuario = numero ? `+${numero}` : 'Usuario';
                 if (nombreUsuario.length > 35) nombreUsuario = nombreUsuario.slice(0, 35) + '…';
 
-                let mensaje = configGrupo.welcomeMsg || `¡Bienvenido/a @user a *${nombreGrupo}*! 🎉\nEscribe *.menu* para ver los comandos.`;
-                mensaje = mensaje
-                    .replace(/@user/gi, `@${numero}`)
-                    .replace(/@name/gi, nombreUsuario)
-                    .replace(/@group/gi, nombreGrupo)
-                    .replace(/@members/gi, String(membersCount))
-                    .replace(/@date/gi, fecha)
-                    .replace(/@desc/gi, descGrupo);
-
-                let fotoPerfil = null;
-                try { fotoPerfil = await sock.profilePictureUrl(pJid, 'image'); } catch {}
-
-                if (fotoPerfil) {
-                    try {
-                        const resp = await fetch(fotoPerfil);
-                        if (resp.ok) {
-                            const buffer = Buffer.from(await resp.arrayBuffer());
-                            if (buffer.length > 0) {
-                                await sock.sendMessage(id, { image: buffer, caption: mensaje, mentions: [pJid] });
-                                continue;
-                            }
-                        }
-                    } catch {}
+                if (action === 'remove' && byeActivo) {
+                    let msg = (configGrupo.byeMsg || `Adiós @user, te extrañaremos en @group 👋`)
+                        .replace(/@user/gi, `@${numero}`).replace(/@name/gi, nombreUsuario)
+                        .replace(/@group/gi, nombreGrupo).replace(/@members/gi, String(membersCount)).replace(/@date/gi, fecha);
+                    let foto = null;
+                    try { foto = await sock.profilePictureUrl(pJid, 'image'); } catch {}
+                    if (foto) {
+                        try {
+                            const r = await fetch(foto);
+                            if (r.ok) { const b = Buffer.from(await r.arrayBuffer()); if (b.length > 0) { await sock.sendMessage(id, { image: b, caption: msg, mentions: [pJid] }); continue; } }
+                        } catch {}
+                    }
+                    await sock.sendMessage(id, { text: msg, mentions: [pJid] });
                 }
-                await sock.sendMessage(id, { text: mensaje, mentions: [pJid] });
+
+                if (action === 'add' && welcomeActivo) {
+                    let msg = (configGrupo.welcomeMsg || `¡Bienvenido/a @user a *${nombreGrupo}*! 🎉\nEscribe *.menu* para ver los comandos.`)
+                        .replace(/@user/gi, `@${numero}`).replace(/@name/gi, nombreUsuario)
+                        .replace(/@group/gi, nombreGrupo).replace(/@members/gi, String(membersCount))
+                        .replace(/@date/gi, fecha).replace(/@desc/gi, descGrupo);
+                    let foto = null;
+                    try { foto = await sock.profilePictureUrl(pJid, 'image'); } catch {}
+                    if (foto) {
+                        try {
+                            const r = await fetch(foto);
+                            if (r.ok) { const b = Buffer.from(await r.arrayBuffer()); if (b.length > 0) { await sock.sendMessage(id, { image: b, caption: msg, mentions: [pJid] }); continue; } }
+                        } catch {}
+                    }
+                    await sock.sendMessage(id, { text: msg, mentions: [pJid] });
+                }
             }
         });
 
-        sock.ev.on('connection.update', async update => {
-            const { connection, lastDisconnect, qr } = update;
-
-            if (qr && metodoConexion === '2') {
-                ultimoQR = qr;
-                console.log('\n======================================\n📱 QR GENERADO\n======================================\nAbre la ruta /qr de tu servidor y escanea el QR.\n======================================\n');
-            }
-
+        sock.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
+            if (qr && metodoConexion === '2') { ultimoQR = qr; console.log('\n📱 QR GENERADO → Abre /qr en tu servidor\n'); }
             if (connection === 'open') {
-                intentos = 0;
-                ultimoQR = null;
-                console.log('\n======================================\n          ✅ BOT CONECTADO\n======================================\n');
-                console.log('🤖 BOT-API está funcionando.\n🎉 Sistema de bienvenida: ACTIVO\n👋 Sistema de despedida: DISPONIBLE\n🖼️ Foto de perfil: ACTIVA\n\nPrueba: .ping o .menu\n');
+                intentos = 0; ultimoQR = null;
+                console.log('\n======================================\n          ✅ BOT CONECTADO\n======================================\n🤖 BOT-API funcionando\n🎉 Bienvenida: ACTIVA | 👋 Despedida: DISPONIBLE\nPrueba: .ping o .menu\n');
+
+                try {
+                    if (fs.existsSync(RUTA_WB_DB)) {
+                        const db = JSON.parse(fs.readFileSync(RUTA_WB_DB, 'utf8'));
+                        const activos = Object.keys(db).filter(g => db[g]?.welcomeActivo || db[g]?.byeActivo);
+                        for (const gid of activos) {
+                            try { await sock.groupMetadata(gid); console.log(`[WELCOME/BYE] ✅ Precargado: ${gid}`); }
+                            catch (e) { console.warn(`[WELCOME/BYE] ⚠️ No se pudo precargar ${gid}`); }
+                        }
+                    }
+                } catch (e) { console.error('[WELCOME/BYE] Error precarga:', e?.message); }
             }
-
             if (connection === 'close') {
-                const codigoError = new Boom(lastDisconnect?.error)?.output?.statusCode || 0;
-                const registrado = sock.authState?.creds?.registered;
-                const reconectar = codigoError !== DisconnectReason.loggedOut;
-
-                console.log('\n❌ Conexión cerrada.');
-                console.log(`Código: ${codigoError}`);
-                console.log(`Sesión registrada: ${registrado}`);
-
-                if (!reconectar) {
-                    console.log('🔒 Sesión cerrada por logout.\nNo se reconectará automáticamente.');
-                    iniciando = false;
-                    return;
-                }
-
+                const code = new Boom(lastDisconnect?.error)?.output?.statusCode || 0;
+                if (code === DisconnectReason.loggedOut) { console.log('🔒 Logout detectado. No se reconectará.'); iniciando = false; return; }
                 intentos++;
                 const espera = Math.min(5000 * intentos, 60000);
                 console.log(`🔄 Reconectando en ${espera / 1000}s...`);
-                setTimeout(() => {
-                    iniciando = false;
-                    iniciarBot();
-                }, espera);
+                setTimeout(() => { iniciando = false; iniciarBot(); }, espera);
             }
         });
 
         sock.ev.on('messages.upsert', async ({ messages }) => {
             const m = messages[0];
             if (!m.message || m.key.remoteJid === 'status@broadcast') return;
-            const listaComandos = Array.from(comandos.values())
-                .filter((v, i, self) => self.indexOf(v) === i);
-            handleMessage(sock, m, '.', listaComandos);
+            handleMessage(sock, m, '.', Array.from(new Set(comandos.values())));
         });
 
-        if (!state.creds.registered && metodoConexion === '1') {
-            setTimeout(() => generarCodigo(sock), 4000);
-        }
-
+        if (!state.creds.registered && metodoConexion === '1') setTimeout(() => generarCodigo(sock), 4000);
         iniciando = false;
-        console.log('📡 Socket de WhatsApp preparado.');
-
+        console.log('📡 Socket preparado.');
     } catch (error) {
         iniciando = false;
-        console.error('\n❌ Error iniciando BOT-API:');
-        console.error(error?.message || error);
+        console.error('\n❌ Error iniciando:', error?.message || error);
         intentos++;
-        const espera = Math.min(5000 * intentos, 60000);
-        console.log(`🔄 Reintentando en ${espera / 1000}s...`);
-        setTimeout(iniciarBot, espera);
+        setTimeout(iniciarBot, Math.min(5000 * intentos, 60000));
     }
 }
 
