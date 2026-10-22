@@ -36,6 +36,19 @@ function formatearVistas(vistas) {
     return String(num);
 }
 
+function parsearDuracion(duracionStr) {
+    if (!duracionStr) return 0;
+    const str = String(duracionStr).trim();
+    const partes = str.split(':').map(p => parseInt(p) || 0);
+    if (partes.length === 3) {
+        return partes[0] * 3600 + partes[1] * 60 + partes[2];
+    } else if (partes.length === 2) {
+        return partes[0] * 60 + partes[1];
+    } else {
+        return parseInt(str) || 0;
+    }
+}
+
 function esURL(input) {
     return /^https?:\/\//i.test(input) || 
            /youtube\.com\/watch/i.test(input) || 
@@ -208,9 +221,13 @@ export async function procesarAudio(sock, msg, video, responder) {
         const info = await infoAudio(video.url);
         const buffer = await descargarBuffer(info.downloadUrl, 60000);
 
+        const segundos = parsearDuracion(video.duracion);
+
         await sock.sendMessage(jid, {
             audio: buffer,
             mimetype: 'audio/mpeg',
+            ptt: false,
+            seconds: segundos,
             contextInfo: {
                 externalAdReply: {
                     title: info.titulo || video.titulo,
@@ -291,13 +308,10 @@ async function enviarConBotones(sock, msg, video, jid) {
         '┃ 🎯 Elige con botones o\n' +
         '┃    responde *1* o *2*\n' +
         '┃\n' +
-        '╰━━〔  𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣';
+        '╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣';
 
     limpiarSesionesViejas();
 
-    // ══ GUARDAR LA SESIÓN CON VARIAS CLAVES ══
-    // Así cualquier usuario del chat que presione el botón la activa,
-    // no solo el que escribió el comando.
     const ahora = Date.now();
     const claves = new Set();
     
@@ -306,7 +320,7 @@ async function enviarConBotones(sock, msg, video, jid) {
     if (msg.key.senderPn) claves.add(msg.key.senderPn);
     if (msg.key.participantAlt) claves.add(msg.key.participantAlt);
     if (msg.key.remoteJidAlt) claves.add(msg.key.remoteJidAlt);
-    if (jid) claves.add(jid); // clave del chat: cualquiera del chat puede elegir
+    if (jid) claves.add(jid);
 
     for (const k of claves) {
         global.playSessions[k] = { video, timestamp: ahora };
@@ -335,7 +349,7 @@ async function enviarConBotones(sock, msg, video, jid) {
                 },
                 interactiveMessage: {
                     body: { text: caption },
-                    footer: { text: '⚡ BOT-API ' },
+                    footer: { text: '⚡ BOT-API ⚡' },
                     header: imagenMedia?.imageMessage ? {
                         imageMessage: imagenMedia.imageMessage,
                         hasMediaAttachment: true
@@ -413,12 +427,12 @@ export default {
         } catch (error) {
             console.error('[PLAY] Error:', error?.message || error);
             await responder.texto(
-                '╭━━〔  𝐄𝐑𝐑𝐎𝐑 〕━━⬣\n' +
+                '╭━━〔 ❌ 𝐄𝐑𝐑𝐎𝐑 〕━━⬣\n' +
                 '┃ ⚠️ ' + (error?.message || 'Error desconocido') + '\n' +
                 '┃\n' +
                 '┃ 💡 Intenta con otro nombre\n' +
                 '┃    o verifica tu conexión.\n' +
-                '╰━━〔  𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣'
+                '╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣'
             );
         }
     }
