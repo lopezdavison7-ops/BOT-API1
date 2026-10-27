@@ -6,6 +6,8 @@ import { generateWAMessageFromContent, prepareWAMessageMedia } from 'baileys';
 const KYZO_API_URL = 'https://kyzorohan.web.id/api/ytplay';
 const KYZO_API_KEY = 'kyzo_450f7983414f9ec5';
 const FAA_API = 'https://api-faa.my.id/faa';
+const ALYA_API = 'https://api.alyacore.xyz';
+const ALYA_KEY = 'AURA-BOT-JERIELB';
 
 const CACHE_TTL = 5 * 60 * 1000;
 const SESION_TTL = 10 * 60 * 1000;
@@ -48,20 +50,34 @@ function limpiarSesionesViejas() {
     }
 }
 
+function getUA() {
+    return 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+}
+
 function validarAudio(buffer) {
-    if (!buffer || buffer.length < 1000) return null;
+    if (!buffer || buffer.length < 1000) {
+        console.log('[VALIDAR] ❌ Buffer muy pequeño');
+        return null;
+    }
     if (buffer[0] === 0x49 && buffer[1] === 0x44 && buffer[2] === 0x33) return 'audio/mpeg';
     if (buffer[0] === 0xFF && (buffer[1] & 0xE0) === 0xE0) return 'audio/mpeg';
     if (buffer.length > 12 && buffer.slice(4, 8).toString('ascii') === 'ftyp') return 'audio/mp4';
     if (buffer[0] === 0x4F && buffer[1] === 0x67 && buffer[2] === 0x67) return 'audio/ogg';
     if (buffer.slice(0, 4).toString('ascii') === 'RIFF') return 'audio/wav';
     if (buffer[0] === 0x1A && buffer[1] === 0x45 && buffer[2] === 0xDF && buffer[3] === 0xA3) return 'audio/webm';
+    const comoTexto = buffer.slice(0, 200).toString('utf8');
+    console.log('[VALIDAR] ❌ Buffer inválido. Inicio:', comoTexto.replace(/\n/g, ' ').substring(0, 150));
     return null;
 }
 
 function validarVideo(buffer) {
-    if (!buffer || buffer.length < 1000) return null;
+    if (!buffer || buffer.length < 1000) {
+        console.log('[VALIDAR] ❌ Buffer muy pequeño');
+        return null;
+    }
     if (buffer.length > 12 && buffer.slice(4, 8).toString('ascii') === 'ftyp') return 'video/mp4';
+    const comoTexto = buffer.slice(0, 200).toString('utf8');
+    console.log('[VALIDAR] ❌ Buffer inválido. Inicio:', comoTexto.replace(/\n/g, ' ').substring(0, 150));
     return null;
 }
 
@@ -147,7 +163,7 @@ async function buscarVideo(query) {
 async function descargarBuffer(url, timeoutMs = 60000) {
     console.log(`[DL] Descargando: ${url.substring(0, 80)}...`);
     const res = await fetch(url, {
-        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+        headers: { 'User-Agent': getUA() },
         signal: AbortSignal.timeout(timeoutMs)
     });
     if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -157,23 +173,64 @@ async function descargarBuffer(url, timeoutMs = 60000) {
     return buffer;
 }
 
+async function audioAlya(videoUrl) {
+    try {
+        console.log('[ALYA] Consultando API...');
+        const url = `${ALYA_API}/dl/ytmp3?url=${encodeURIComponent(videoUrl)}&key=${ALYA_KEY}`;
+        const res = await fetch(url, {
+            headers: { 'User-Agent': getUA(), 'Accept': 'application/json' },
+            signal: AbortSignal.timeout(25000)
+        });
+        if (!res.ok) { console.log(`[ALYA] ❌ HTTP ${res.status}`); return null; }
+        const data = await res.json();
+        console.log('[ALYA] Respuesta:', JSON.stringify(data).substring(0, 300));
+        const result = data?.data || data?.result || data;
+        let dl = result?.mp3 || result?.audio || result?.url || result?.download || result?.link;
+        if (typeof dl === 'object' && dl?.url) dl = dl.url;
+        if (dl && typeof dl === 'string' && dl.startsWith('http')) {
+            console.log('[ALYA] ✅ URL obtenida');
+            return dl;
+        }
+        console.log('[ALYA] ❌ Sin URL');
+    } catch (e) { console.log('[ALYA] ❌ Error:', e.message); }
+    return null;
+}
+
+async function videoAlya(videoUrl) {
+    try {
+        console.log('[ALYA-VIDEO] Consultando API...');
+        const url = `${ALYA_API}/dl/ytmp4?url=${encodeURIComponent(videoUrl)}&key=${ALYA_KEY}`;
+        const res = await fetch(url, {
+            headers: { 'User-Agent': getUA(), 'Accept': 'application/json' },
+            signal: AbortSignal.timeout(25000)
+        });
+        if (!res.ok) { console.log(`[ALYA-VIDEO] ❌ HTTP ${res.status}`); return null; }
+        const data = await res.json();
+        console.log('[ALYA-VIDEO] Respuesta:', JSON.stringify(data).substring(0, 300));
+        const result = data?.data || data?.result || data;
+        let dl = result?.mp4 || result?.video || result?.download_url || result?.url || result?.download || result?.link;
+        if (typeof dl === 'object' && dl?.url) dl = dl.url;
+        if (dl && typeof dl === 'string' && dl.startsWith('http')) {
+            console.log('[ALYA-VIDEO] ✅ URL obtenida');
+            return dl;
+        }
+        console.log('[ALYA-VIDEO] ❌ Sin URL');
+    } catch (e) { console.log('[ALYA-VIDEO] ❌ Error:', e.message); }
+    return null;
+}
+
 async function audioFaa(query) {
     try {
         console.log('[FAA] Consultando API...');
         const url = `${FAA_API}/youtube?q=${encodeURIComponent(query)}`;
         const res = await fetch(url, {
-            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+            headers: { 'User-Agent': getUA() },
             signal: AbortSignal.timeout(20000)
         });
-        if (!res.ok) {
-            console.log(`[FAA] ❌ HTTP ${res.status}`);
-            return null;
-        }
+        if (!res.ok) { console.log(`[FAA] ❌ HTTP ${res.status}`); return null; }
         const data = await res.json();
-        if (data?.status !== true) {
-            console.log('[FAA] ❌ Sin éxito:', JSON.stringify(data).substring(0, 150));
-            return null;
-        }
+        console.log('[FAA] Respuesta completa:', JSON.stringify(data).substring(0, 400));
+        if (data?.status !== true) return null;
         const result = data?.result || data?.data || {};
         const urlMp3 = result?.mp3 || result?.audio || result?.url;
         if (urlMp3 && typeof urlMp3 === 'string' && urlMp3.startsWith('http')) {
@@ -181,9 +238,7 @@ async function audioFaa(query) {
             return urlMp3;
         }
         console.log('[FAA] ❌ Sin campo mp3');
-    } catch (e) {
-        console.log('[FAA] ❌ Error:', e.message);
-    }
+    } catch (e) { console.log('[FAA] ❌ Error:', e.message); }
     return null;
 }
 
@@ -199,9 +254,7 @@ async function audioKyzo(query) {
             return data.download;
         }
         console.log('[KYZO] ❌ Sin campo download');
-    } catch (e) {
-        console.log('[KYZO] ❌ Error:', e.message);
-    }
+    } catch (e) { console.log('[KYZO] ❌ Error:', e.message); }
     return null;
 }
 
@@ -215,17 +268,14 @@ async function audioMobi(videoId) {
                 'Referer': 'https://id.ytmp3.mobi/',
             },
         });
-
         const { data: init } = await client.get('https://d.ymcdn.org/api/v1/init', {
             params: { p: 'y', 23: '1llum1n471', _: Math.random() },
         });
         if (!init?.convertURL) throw new Error('Init failed');
-
         const { data: convert } = await client.get(init.convertURL, {
             params: { v: videoId, f: 'mp3', _: Math.random() },
         });
         if (!convert?.progressURL || !convert?.downloadURL) throw new Error('Sin URL (posible bloqueo de proxy)');
-
         let progress = 0, attempts = 0;
         while (progress < 3 && attempts < 15) {
             const { data } = await client.get(convert.progressURL);
@@ -234,12 +284,9 @@ async function audioMobi(videoId) {
             if (progress < 3) { attempts++; await new Promise(r => setTimeout(r, 200)); }
         }
         if (attempts >= 15 && progress < 3) throw new Error('Timeout');
-        
         console.log('[MOBI] ✅ URL obtenida');
         return convert.downloadURL;
-    } catch (e) {
-        console.log('[MOBI] ❌ Error:', e.message);
-    }
+    } catch (e) { console.log('[MOBI] ❌ Error:', e.message); }
     return null;
 }
 
@@ -253,17 +300,14 @@ async function videoMobi(videoId) {
                 'Referer': 'https://id.ytmp3.mobi/',
             },
         });
-
         const { data: init } = await client.get('https://d.ymcdn.org/api/v1/init', {
             params: { p: 'y', 23: '1llum1n471', _: Math.random() },
         });
         if (!init?.convertURL) throw new Error('Init failed');
-
         const { data: convert } = await client.get(init.convertURL, {
             params: { v: videoId, f: 'mp4', _: Math.random() },
         });
         if (!convert?.progressURL || !convert?.downloadURL) throw new Error('Sin URL (posible bloqueo de proxy)');
-
         let progress = 0, attempts = 0;
         while (progress < 3 && attempts < 15) {
             const { data } = await client.get(convert.progressURL);
@@ -272,12 +316,9 @@ async function videoMobi(videoId) {
             if (progress < 3) { attempts++; await new Promise(r => setTimeout(r, 200)); }
         }
         if (attempts >= 15 && progress < 3) throw new Error('Timeout');
-        
         console.log('[MOBI-VIDEO] ✅ URL obtenida');
         return convert.downloadURL;
-    } catch (e) {
-        console.log('[MOBI-VIDEO] ❌ Error:', e.message);
-    }
+    } catch (e) { console.log('[MOBI-VIDEO] ❌ Error:', e.message); }
     return null;
 }
 
@@ -286,14 +327,12 @@ async function videoFaa(query) {
         console.log('[FAA-VIDEO] Consultando API...');
         const url = `${FAA_API}/ytmp4?q=${encodeURIComponent(query)}`;
         const res = await fetch(url, {
-            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+            headers: { 'User-Agent': getUA() },
             signal: AbortSignal.timeout(20000)
         });
-        if (!res.ok) {
-            console.log(`[FAA-VIDEO] ❌ HTTP ${res.status}`);
-            return null;
-        }
+        if (!res.ok) { console.log(`[FAA-VIDEO] ❌ HTTP ${res.status}`); return null; }
         const data = await res.json();
+        console.log('[FAA-VIDEO] Respuesta:', JSON.stringify(data).substring(0, 300));
         if (data?.status !== true) return null;
         const result = data?.result || data?.data || {};
         const urlVideo = result?.download_url || result?.mp4 || result?.video || result?.url;
@@ -301,110 +340,76 @@ async function videoFaa(query) {
             console.log('[FAA-VIDEO] ✅ URL obtenida');
             return urlVideo;
         }
-        console.log('[FAA-VIDEO] ❌ Sin URL de descarga');
-    } catch (e) {
-        console.log('[FAA-VIDEO] ❌ Error:', e.message);
-    }
+        console.log('[FAA-VIDEO] ❌ Sin URL');
+    } catch (e) { console.log('[FAA-VIDEO] ❌ Error:', e.message); }
     return null;
+}
+
+async function carreraProveedores(proveedores, tipo, cacheKey) {
+    const cached = global.downloadCache.get(cacheKey);
+    if (cached && Date.now() - cached.t < DOWNLOAD_CACHE_TTL) {
+        console.log(`[${tipo.toUpperCase()}] ⚡ Usando URL en caché`);
+        try {
+            const buffer = await descargarBuffer(cached.url, tipo === 'audio' ? 60000 : 120000);
+            const mimetype = tipo === 'audio' ? validarAudio(buffer) : validarVideo(buffer);
+            if (mimetype) {
+                console.log(`[${tipo.toUpperCase()}] ✅ Caché válido`);
+                return { buffer, mimetype, fuente: 'Caché' };
+            }
+        } catch (e) {
+            console.log(`[${tipo.toUpperCase()}] Caché falló, buscando de nuevo...`);
+        }
+    }
+
+    console.log(`[${tipo.toUpperCase()}] Carrera entre: ${proveedores.map(p => p.nombre).join(', ')}`);
+
+    return await new Promise((resolve) => {
+        let pendientes = proveedores.length;
+        let resuelto = false;
+        const terminar = (valor) => { if (!resuelto) { resuelto = true; resolve(valor); } };
+
+        for (const prov of proveedores) {
+            (async () => {
+                try {
+                    const url = await prov.fn();
+                    if (!url) {
+                        if (--pendientes === 0) terminar(null);
+                        return;
+                    }
+                    const buffer = await descargarBuffer(url, tipo === 'audio' ? 60000 : 120000);
+                    const mimetype = tipo === 'audio' ? validarAudio(buffer) : validarVideo(buffer);
+                    if (mimetype) {
+                        console.log(`[${tipo.toUpperCase()}] 🏆 ${prov.nombre} ganó la carrera`);
+                        global.downloadCache.set(cacheKey, { url, t: Date.now() });
+                        terminar({ buffer, mimetype, fuente: prov.nombre });
+                    } else {
+                        console.log(`[${tipo.toUpperCase()}] ❌ ${prov.nombre} buffer inválido`);
+                        if (--pendientes === 0) terminar(null);
+                    }
+                } catch (e) {
+                    console.log(`[${tipo.toUpperCase()}] ❌ ${prov.nombre} falló: ${e.message}`);
+                    if (--pendientes === 0) terminar(null);
+                }
+            })();
+        }
+    });
 }
 
 async function obtenerAudioValido(video) {
-    const cacheKey = `audio_${video.videoId}`;
-    const cached = global.downloadCache.get(cacheKey);
-    if (cached && Date.now() - cached.t < DOWNLOAD_CACHE_TTL) {
-        console.log('[AUDIO] ⚡ Usando URL en caché');
-        try {
-            const buffer = await descargarBuffer(cached.url, 60000);
-            const mimetype = validarAudio(buffer);
-            if (mimetype) {
-                console.log(`[AUDIO] ✅ Caché válido (${mimetype})`);
-                return { buffer, mimetype, fuente: 'Caché' };
-            }
-        } catch (e) {
-            console.log('[AUDIO] Caché falló, buscando de nuevo...');
-        }
-    }
-
-    console.log('[AUDIO] Probando Faa, Kyzo y Mobi en paralelo...');
-    
-    const promesas = [
-        audioFaa(video.titulo).then(url => url ? { nombre: 'Faa', url } : null),
-        audioKyzo(video.titulo).then(url => url ? { nombre: 'Kyzo', url } : null),
-        audioMobi(video.videoId).then(url => url ? { nombre: 'Mobi', url } : null)
-    ];
-
-    const resultados = await Promise.allSettled(promesas);
-    
-    for (const resultado of resultados) {
-        if (resultado.status === 'fulfilled' && resultado.value) {
-            const { nombre, url } = resultado.value;
-            try {
-                console.log(`[AUDIO] Descargando de ${nombre}...`);
-                const buffer = await descargarBuffer(url, 60000);
-                const mimetype = validarAudio(buffer);
-                if (mimetype) {
-                    console.log(`[AUDIO] ✅ ${nombre} dio audio válido (${mimetype})`);
-                    global.downloadCache.set(cacheKey, { url, t: Date.now() });
-                    return { buffer, mimetype, fuente: nombre };
-                }
-                console.log(`[AUDIO] ❌ ${nombre} dio buffer inválido`);
-            } catch (e) {
-                console.log(`[AUDIO] ❌ ${nombre} descarga falló: ${e.message}`);
-            }
-        }
-    }
-    
-    console.log('[AUDIO] ❌ Todos los proveedores fallaron');
-    return null;
+    return await carreraProveedores([
+        { nombre: 'Alya', fn: () => audioAlya(video.url) },
+        { nombre: 'Faa', fn: () => audioFaa(video.titulo) },
+        { nombre: 'Kyzo', fn: () => audioKyzo(video.titulo) },
+        { nombre: 'Mobi', fn: () => audioMobi(video.videoId) }
+    ], 'audio', `audio_${video.videoId}`);
 }
 
 async function obtenerVideoValido(video) {
-    const cacheKey = `video_${video.videoId}`;
-    const cached = global.downloadCache.get(cacheKey);
-    if (cached && Date.now() - cached.t < DOWNLOAD_CACHE_TTL) {
-        console.log('[VIDEO] ⚡ Usando URL en caché');
-        try {
-            const buffer = await descargarBuffer(cached.url, 120000);
-            const mimetype = validarVideo(buffer);
-            if (mimetype) {
-                console.log('[VIDEO] ✅ Caché válido');
-                return { buffer, mimetype, fuente: 'Caché' };
-            }
-        } catch (e) {
-            console.log('[VIDEO] Caché falló, buscando de nuevo...');
-        }
-    }
-
-    console.log('[VIDEO] Probando Faa y Mobi en paralelo...');
-    
-    const promesas = [
-        videoFaa(video.titulo).then(url => url ? { nombre: 'Faa', url } : null),
-        videoMobi(video.videoId).then(url => url ? { nombre: 'Mobi', url } : null)
-    ];
-
-    const resultados = await Promise.allSettled(promesas);
-    
-    for (const resultado of resultados) {
-        if (resultado.status === 'fulfilled' && resultado.value) {
-            const { nombre, url } = resultado.value;
-            try {
-                console.log(`[VIDEO] Descargando de ${nombre}...`);
-                const buffer = await descargarBuffer(url, 120000);
-                const mimetype = validarVideo(buffer);
-                if (mimetype) {
-                    console.log(`[VIDEO] ✅ ${nombre} dio video válido`);
-                    global.downloadCache.set(cacheKey, { url, t: Date.now() });
-                    return { buffer, mimetype, fuente: nombre };
-                }
-                console.log(`[VIDEO] ❌ ${nombre} dio buffer inválido`);
-            } catch (e) {
-                console.log(`[VIDEO] ❌ ${nombre} descarga falló: ${e.message}`);
-            }
-        }
-    }
-    
-    console.log('[VIDEO] ❌ Todos los proveedores fallaron');
-    return null;
+    return await carreraProveedores([
+        { nombre: 'Alya', fn: () => videoAlya(video.url) },
+        { nombre: 'Faa', fn: () => videoFaa(video.titulo) },
+        { nombre: 'Mobi', fn: () => videoMobi(video.videoId) }
+    ], 'video', `video_${video.videoId}`);
 }
 
 export async function procesarAudio(sock, msg, video, responder) {
@@ -440,7 +445,7 @@ export async function procesarAudio(sock, msg, video, responder) {
         
     } catch (error) {
         console.error('[PLAY-AUDIO] Error:', error?.message || error);
-        await responder.texto('╭━━〔 ❌ 𝐄𝐑𝐑𝐎𝐑 〕━━⬣\n┃ No se pudo enviar el audio.\n┃\n┃ ⚠️ ' + (error?.message || 'Error desconocido') + '\n╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣');
+        await responder.texto('╭━━〔 ❌ 𝐄𝐑𝐑𝐎𝐑 〕━━⬣\n No se pudo enviar el audio.\n┃\n┃ ⚠️ ' + (error?.message || 'Error desconocido') + '\n╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣');
     }
 }
 
@@ -454,7 +459,7 @@ export async function procesarVideo(sock, msg, video, responder) {
 
         const { buffer, fuente } = resultado;
         const tamañoMB = (buffer.length / 1024 / 1024).toFixed(2);
-        const caption = '╭━━〔 🎬 𝐕𝐈𝐃𝐄𝐎 〕━━⬣\n┃ 🎧 *' + video.titulo + '*\n┃ 👤 ' + video.autor + '\n┃ 📦 ' + tamañoMB + ' MB\n╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣';
+        const caption = '╭━━〔  𝐕𝐈𝐃𝐄𝐎 〕━━⬣\n┃ 🎧 *' + video.titulo + '*\n┃ 👤 ' + video.autor + '\n┃ 📦 ' + tamañoMB + ' MB\n╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣';
 
         if (buffer.length > 16 * 1024 * 1024) {
             await sock.sendMessage(jid, {
@@ -471,12 +476,12 @@ export async function procesarVideo(sock, msg, video, responder) {
         
     } catch (error) {
         console.error('[PLAY-VIDEO] Error:', error?.message || error);
-        await responder.texto('╭━━〔 ❌ 𝐄𝐑𝐑𝐎𝐑 〕━━⬣\n┃ No se pudo enviar el video.\n┃\n┃ ⚠️ ' + (error?.message || 'Error desconocido') + '\n╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣');
+        await responder.texto('╭━━〔  𝐄𝐑𝐑𝐎𝐑 〕━━⬣\n┃ No se pudo enviar el video.\n┃\n┃ ⚠️ ' + (error?.message || 'Error desconocido') + '\n╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣');
     }
 }
 
 async function enviarConBotones(sock, msg, video, jid) {
-    const caption = '╭━━〔  𝐏𝐋𝐀𝐘 〕━━⬣\n┃\n┃ 🎧 *' + video.titulo + '*\n┃ 👤 ' + video.autor + '\n┃ ⏱️ ' + video.duracion + '\n┃ 👀 ' + formatearVistas(video.vistas) + '\n┃\n 🎯 Elige con botones o\n┃    responde *1* o *2*\n┃\n━━〔 ⚡ 𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣';
+    const caption = '╭━━〔 🎵 𝐏𝐋𝐀𝐘 〕━━⬣\n┃\n┃ 🎧 *' + video.titulo + '*\n┃ 👤 ' + video.autor + '\n┃ ⏱️ ' + video.duracion + '\n┃ 👀 ' + formatearVistas(video.vistas) + '\n┃\n┃ 🎯 Elige con botones o\n┃    responde *1* o *2*\n┃\n╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣';
 
     limpiarSesionesViejas();
     const ahora = Date.now();
@@ -502,7 +507,7 @@ async function enviarConBotones(sock, msg, video, jid) {
                 messageContextInfo: { deviceListMetadata: {}, deviceListMetadataVersion: 2 },
                 interactiveMessage: {
                     body: { text: caption },
-                    footer: { text: '⚡ BOT-API ⚡' },
+                    footer: { text: '⚡ BOT-API ' },
                     header: imagenMedia?.imageMessage ? {
                         imageMessage: imagenMedia.imageMessage,
                         hasMediaAttachment: true
@@ -547,7 +552,7 @@ export default {
             else await enviarConBotones(sock, msg, video, jid);
         } catch (error) {
             console.error('[PLAY] Error:', error?.message || error);
-            await responder.texto('╭━━〔 ❌ 𝐄𝐑𝐎𝐑 〕━━⬣\n┃ ⚠️ ' + (error?.message || 'Error desconocido') + '\n┃\n┃ 💡 Intenta con otro nombre\n┃    o verifica tu conexión.\n╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣');
+            await responder.texto('╭━━〔 ❌ 𝐄𝐑𝐑𝐎𝐑 〕━━⬣\n┃ ⚠️ ' + (error?.message || 'Error desconocido') + '\n┃\n┃ 💡 Intenta con otro nombre\n┃    o verifica tu conexión.\n╰━━〔  𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣');
         }
     }
 };
