@@ -127,13 +127,25 @@ async function iniciarBot() {
             logger, printQRInTerminal: false, mobile: false,
             browser: Browsers ? Browsers.macOS('Chrome') : ['Chrome', 'Chrome', '121.0.0.0'],
             auth: { creds: state.creds, keys: makeCacheableSignalKeyStore ? makeCacheableSignalKeyStore(state.keys, logger) : state.keys },
-            markOnlineOnConnect: true, syncFullHistory: false, msgRetryCounterCache,
-            connectTimeoutMs: 60000, defaultQueryTimeoutMs: 30000, mediaUploadTimeoutMs: 120000,
-            keepAliveIntervalMs: 20000, emitOwnEvents: true, getMessage: async () => undefined,
+            markOnlineOnConnect: true,
+            syncFullHistory: false,
+            shouldSyncHistoryMessage: () => true,
+            msgRetryCounterCache,
+            connectTimeoutMs: 60000,
+            defaultQueryTimeoutMs: 30000,
+            mediaUploadTimeoutMs: 120000,
+            keepAliveIntervalMs: 20000,
+            emitOwnEvents: true,
+            getMessage: async () => undefined,
             ...(version && { version })
         });
 
         sock.ev.on('creds.update', saveCreds);
+
+        // DEBUG TEMPORAL: Elimina esta línea cuando confirmes que funciona
+        sock.ev.on('group-participants.update', (data) => {
+            console.log('\n🔔 [DEBUG-GROUP] Evento recibido:', data.action, '| Grupo:', data.id, '| Participantes:', data.participants?.length);
+        });
 
         sock.ev.on('group-participants.update', async ({ id, participants, action }) => {
             if (!id?.endsWith('@g.us') || !Array.isArray(participants) || !participants.length) return;
@@ -218,10 +230,18 @@ async function iniciarBot() {
                     if (fs.existsSync(RUTA_WB_DB)) {
                         const db = JSON.parse(fs.readFileSync(RUTA_WB_DB, 'utf8'));
                         const activos = Object.keys(db).filter(g => db[g]?.welcomeActivo || db[g]?.byeActivo);
+                        console.log(`[WELCOME/BYE] 📋 Grupos activos encontrados: ${activos.length}`);
                         for (const gid of activos) {
-                            try { await sock.groupMetadata(gid); console.log(`[WELCOME/BYE] ✅ Precargado: ${gid}`); }
-                            catch (e) { console.warn(`[WELCOME/BYE] ⚠️ No se pudo precargar ${gid}`); }
+                            try {
+                                await sock.groupMetadata(gid);
+                                console.log(`[WELCOME/BYE] ✅ Precargado: ${gid}`);
+                                await new Promise(r => setTimeout(r, 500));
+                            } catch (e) {
+                                console.warn(`[WELCOME/BYE] ⚠️ No se pudo precargar ${gid}: ${e?.message}`);
+                            }
                         }
+                    } else {
+                        console.log('[WELCOME/BYE] ℹ️ No existe bienvenida_despedida.json aún');
                     }
                 } catch (e) { console.error('[WELCOME/BYE] Error precarga:', e?.message); }
             }
