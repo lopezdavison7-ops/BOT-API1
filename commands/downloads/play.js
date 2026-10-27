@@ -6,6 +6,7 @@ import { generateWAMessageFromContent, prepareWAMessageMedia } from 'baileys';
 const KYZO_API_URL = 'https://kyzorohan.web.id/api/ytplay';
 const KYZO_API_KEY = 'kyzo_450f7983414f9ec5';
 const FAA_API = 'https://api-faa.my.id/faa';
+const DELIRIUS_MP3 = 'https://api.delirius.online/download/ytmp3';
 
 const CACHE_TTL = 5 * 60 * 1000;
 const SESION_TTL = 10 * 60 * 1000;
@@ -145,6 +146,7 @@ async function buscarVideo(query) {
 }
 
 async function descargarBuffer(url, timeoutMs = 60000) {
+    console.log(`[DL] Descargando: ${url.substring(0, 80)}...`);
     const res = await fetch(url, {
         headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
         signal: AbortSignal.timeout(timeoutMs)
@@ -152,28 +154,33 @@ async function descargarBuffer(url, timeoutMs = 60000) {
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const buffer = Buffer.from(await res.arrayBuffer());
     if (!buffer.length) throw new Error('Buffer vacío');
+    console.log(`[DL] ✅ ${buffer.length} bytes`);
     return buffer;
 }
 
 
 async function audioKyzo(query) {
     try {
+        console.log('[KYZO] Consultando API...');
         const { data } = await axios.get(KYZO_API_URL, {
             params: { query, key: KYZO_API_KEY },
             timeout: 15000,
         });
+        console.log('[KYZO] Respuesta:', JSON.stringify(data).substring(0, 200));
         if (data?.status && data?.download) {
             console.log(`[KYZO] ✅ URL obtenida`);
             return data.download;
         }
+        console.log('[KYZO] ❌ Sin campo download');
     } catch (e) {
-        console.log('[KYZO] Error:', e.message);
+        console.log('[KYZO] ❌ Error:', e.message);
     }
     return null;
 }
 
 async function audioMobi(videoId) {
     try {
+        console.log('[MOBI] Iniciando conversión...');
         const client = axios.create({
             timeout: 30000,
             headers: {
@@ -185,11 +192,13 @@ async function audioMobi(videoId) {
         const { data: init } = await client.get('https://d.ymcdn.org/api/v1/init', {
             params: { p: 'y', 23: '1llum1n471', _: Math.random() },
         });
+        console.log('[MOBI] Init:', JSON.stringify(init).substring(0, 150));
         if (!init?.convertURL) throw new Error('Init failed');
 
         const { data: convert } = await client.get(init.convertURL, {
             params: { v: videoId, f: 'mp3', _: Math.random() },
         });
+        console.log('[MOBI] Convert:', JSON.stringify(convert).substring(0, 150));
         if (!convert?.progressURL || !convert?.downloadURL) throw new Error('Sin URL');
 
         let progress = 0, attempts = 0;
@@ -201,16 +210,44 @@ async function audioMobi(videoId) {
         }
         if (attempts >= 15 && progress < 3) throw new Error('Timeout');
         
-        console.log(`[MOBI-MP3] ✅ URL obtenida`);
+        console.log(`[MOBI] ✅ URL obtenida`);
         return convert.downloadURL;
     } catch (e) {
-        console.log('[MOBI-MP3] Error:', e.message);
+        console.log('[MOBI] ❌ Error:', e.message);
+    }
+    return null;
+}
+
+async function audioDelirius(videoUrl) {
+    try {
+        console.log('[DELIRIUS] Consultando API...');
+        const res = await fetch(`${DELIRIUS_MP3}?url=${encodeURIComponent(videoUrl)}`, {
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+            signal: AbortSignal.timeout(15000)
+        });
+        
+        if (!res.ok) {
+            console.log(`[DELIRIUS] ❌ HTTP ${res.status}`);
+            return null;
+        }
+        
+        const data = await res.json();
+        console.log('[DELIRIUS] Respuesta:', JSON.stringify(data).substring(0, 200));
+        
+        if (data?.status === true && data?.data?.download) {
+            console.log('[DELIRIUS] ✅ URL obtenida');
+            return data.data.download;
+        }
+        console.log('[DELIRIUS] ❌ Sin campo download');
+    } catch (e) {
+        console.log('[DELIRIUS] ❌ Error:', e.message);
     }
     return null;
 }
 
 async function videoMobi(videoId) {
     try {
+        console.log('[MOBI-VIDEO] Iniciando conversión...');
         const client = axios.create({
             timeout: 30000,
             headers: {
@@ -238,10 +275,10 @@ async function videoMobi(videoId) {
         }
         if (attempts >= 15 && progress < 3) throw new Error('Timeout');
         
-        console.log(`[MOBI-MP4] ✅ URL obtenida`);
+        console.log(`[MOBI-VIDEO] ✅ URL obtenida`);
         return convert.downloadURL;
     } catch (e) {
-        console.log('[MOBI-MP4] Error:', e.message);
+        console.log('[MOBI-VIDEO] ❌ Error:', e.message);
     }
     return null;
 }
@@ -249,16 +286,22 @@ async function videoMobi(videoId) {
 async function videoFaa(query) {
     try {
         await new Promise(r => setTimeout(r, 600));
+        console.log('[FAA-VIDEO] Consultando API...');
         const url = `${FAA_API}/ytmp4?q=${encodeURIComponent(query)}`;
-        console.log(`[FAA-VIDEO] Buscando...`);
         
         const res = await fetch(url, {
             headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
             signal: AbortSignal.timeout(20000)
         });
         
-        if (!res.ok) return null;
+        if (!res.ok) {
+            console.log(`[FAA-VIDEO] ❌ HTTP ${res.status}`);
+            return null;
+        }
+        
         const data = await res.json();
+        console.log('[FAA-VIDEO] Respuesta:', JSON.stringify(data).substring(0, 200));
+        
         if (data?.status !== true) return null;
         
         const result = data?.result || data?.data || {};
@@ -268,8 +311,9 @@ async function videoFaa(query) {
             console.log(`[FAA-VIDEO] ✅ URL obtenida`);
             return urlVideo;
         }
+        console.log('[FAA-VIDEO] ❌ Sin URL de descarga');
     } catch (e) {
-        console.log('[FAA-VIDEO] Error:', e.message);
+        console.log('[FAA-VIDEO] ❌ Error:', e.message);
     }
     return null;
 }
@@ -291,11 +335,12 @@ async function obtenerAudioValido(video) {
         }
     }
 
-    console.log('[AUDIO] Probando Kyzo y Mobi en paralelo...');
+    console.log('[AUDIO] Probando Kyzo, Mobi y Delirius en paralelo...');
     
     const promesas = [
         audioKyzo(video.titulo).then(url => url ? { nombre: 'Kyzo', url } : null),
-        audioMobi(video.videoId).then(url => url ? { nombre: 'Mobi', url } : null)
+        audioMobi(video.videoId).then(url => url ? { nombre: 'Mobi', url } : null),
+        audioDelirius(video.url).then(url => url ? { nombre: 'Delirius', url } : null)
     ];
 
     const resultados = await Promise.allSettled(promesas);
@@ -314,11 +359,12 @@ async function obtenerAudioValido(video) {
                 }
                 console.log(`[AUDIO] ❌ ${nombre} dio buffer inválido`);
             } catch (e) {
-                console.log(`[AUDIO] ${nombre} descarga falló: ${e.message}`);
+                console.log(`[AUDIO] ❌ ${nombre} descarga falló: ${e.message}`);
             }
         }
     }
     
+    console.log('[AUDIO] ❌ Todos los proveedores fallaron');
     return null;
 }
 
@@ -362,11 +408,12 @@ async function obtenerVideoValido(video) {
                 }
                 console.log(`[VIDEO] ❌ ${nombre} dio buffer inválido`);
             } catch (e) {
-                console.log(`[VIDEO] ${nombre} descarga falló: ${e.message}`);
+                console.log(`[VIDEO] ❌ ${nombre} descarga falló: ${e.message}`);
             }
         }
     }
     
+    console.log('[VIDEO] ❌ Todos los proveedores fallaron');
     return null;
 }
 
@@ -403,7 +450,7 @@ export async function procesarAudio(sock, msg, video, responder) {
         
     } catch (error) {
         console.error('[PLAY-AUDIO] Error:', error?.message || error);
-        await responder.texto('╭━━〔 ❌ 𝐄𝐑𝐑𝐎𝐑 〕━━⬣\n┃ No se pudo enviar el audio.\n┃\n┃ ⚠️ ' + (error?.message || 'Error desconocido') + '\n╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣');
+        await responder.texto('╭━━〔 ❌ 𝐄𝐑𝐑𝐎𝐑 〕━━⬣\n┃ No se pudo enviar el audio.\n┃\n┃ ⚠️ ' + (error?.message || 'Error desconocido') + '\n╰━━〔  𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣');
     }
 }
 
@@ -417,7 +464,7 @@ export async function procesarVideo(sock, msg, video, responder) {
 
         const { buffer, fuente } = resultado;
         const tamañoMB = (buffer.length / 1024 / 1024).toFixed(2);
-        const caption = '╭━━〔 🎬 𝐕𝐈𝐃𝐄𝐎 〕━━⬣\n┃ 🎧 *' + video.titulo + '*\n┃ 👤 ' + video.autor + '\n┃ 📦 ' + tamañoMB + ' MB\n╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣';
+        const caption = '╭━━〔 🎬 𝐕𝐈𝐃𝐄𝐎 〕━━⬣\n┃ 🎧 *' + video.titulo + '*\n┃ 👤 ' + video.autor + '\n┃ 📦 ' + tamañoMB + ' MB\n╰━━〔  𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣';
 
         if (buffer.length > 16 * 1024 * 1024) {
             await sock.sendMessage(jid, {
@@ -434,12 +481,12 @@ export async function procesarVideo(sock, msg, video, responder) {
         
     } catch (error) {
         console.error('[PLAY-VIDEO] Error:', error?.message || error);
-        await responder.texto('╭━━〔 ❌ 𝐄𝐑𝐑𝐎𝐑 〕━━⬣\n┃ No se pudo enviar el video.\n┃\n┃ ⚠️ ' + (error?.message || 'Error desconocido') + '\n╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣');
+        await responder.texto('╭━━〔  𝐄𝐑𝐎𝐑 〕━━⬣\n No se pudo enviar el video.\n┃\n┃ ⚠️ ' + (error?.message || 'Error desconocido') + '\n╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣');
     }
 }
 
 async function enviarConBotones(sock, msg, video, jid) {
-    const caption = '╭━━〔 🎵 𝐏𝐋𝐀𝐘 〕━━⬣\n┃\n┃ 🎧 *' + video.titulo + '*\n┃ 👤 ' + video.autor + '\n┃ ⏱️ ' + video.duracion + '\n┃ 👀 ' + formatearVistas(video.vistas) + '\n┃\n┃ 🎯 Elige con botones o\n┃    responde *1* o *2*\n┃\n╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣';
+    const caption = '╭━━〔 🎵 𝐏𝐋𝐀𝐘 〕━━⬣\n┃\n┃ 🎧 *' + video.titulo + '*\n┃ 👤 ' + video.autor + '\n┃ ⏱️ ' + video.duracion + '\n┃ 👀 ' + formatearVistas(video.vistas) + '\n┃\n 🎯 Elige con botones o\n┃    responde *1* o *2*\n┃\n╰━━〔  𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣';
 
     limpiarSesionesViejas();
     const ahora = Date.now();
@@ -469,7 +516,7 @@ async function enviarConBotones(sock, msg, video, jid) {
                     header: imagenMedia?.imageMessage ? {
                         imageMessage: imagenMedia.imageMessage,
                         hasMediaAttachment: true
-                    } : { title: '🎵 YouTube Downloader', hasMediaAttachment: false },
+                    } : { title: ' YouTube Downloader', hasMediaAttachment: false },
                     nativeFlowMessage: {
                         buttons: [
                             { name: 'quick_reply', buttonParamsJson: JSON.stringify({ display_text: '🎵 Audio', id: 'play_audio' }) },
@@ -499,7 +546,7 @@ export default {
         const query = String(argumento || '').trim();
 
         if (!query) {
-            return await responder.texto('╭━━〔 🎵 𝐏𝐋𝐀𝐘 〕━━⬣\n┃\n┃ ❌ Escribe el nombre o URL\n┃\n┃ 💡 Ejemplos:\n┃ ➪ .play hola (botones)\n┃ ➪ .play2 hola (video directo)\n┃ ➪ .play https://youtu.be/...\n┃\n╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣');
+            return await responder.texto('╭━━〔 🎵 𝐏𝐋𝐀𝐘 〕━━⬣\n\n┃ ❌ Escribe el nombre o URL\n┃\n┃ 💡 Ejemplos:\n┃ ➪ .play hola (botones)\n┃ ➪ .play2 hola (video directo)\n┃ ➪ .play https://youtu.be/...\n┃\n━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣');
         }
 
         const enviarDirecto = ['play2', 'playvideo', 'video'].includes(nombreComando);
