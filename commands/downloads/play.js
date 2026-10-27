@@ -1,31 +1,30 @@
 import fetch from 'node-fetch';
-import https from 'node:https';
+import axios from 'axios';
+import yts from 'yt-search';
 import { generateWAMessageFromContent, prepareWAMessageMedia } from 'baileys';
 
-const AGENTE = new https.Agent({ keepAlive: true, maxSockets: 8 });
-
-const API_BUSCAR = 'https://api.delirius.online/search/ytsearch';
-const API_MP3 = 'https://api.delirius.online/download/ytmp3';
-const API_MP4 = 'https://api.delirius.online/download/ytmp4';
-const FORMATO_VIDEO = '360p';
+const KYZO_API_URL = 'https://kyzorohan.web.id/api/ytplay';
+const KYZO_API_KEY = 'kyzo_450f7983414f9ec5';
+const FAA_API = 'https://api-faa.my.id/faa';
 
 const CACHE_TTL = 5 * 60 * 1000;
 const SESION_TTL = 10 * 60 * 1000;
-const MODIFICADORES = ['remix', 'official audio', 'song', 'lyrics'];
+const DOWNLOAD_CACHE_TTL = 10 * 60 * 1000;
+const MODIFICADORES = ['remix', 'official audio', 'song', 'lyrics', 'audio'];
 const GENERICAS = new Set(['hola', 'hey', 'hi', 'test', 'xd', 'ok', 'no', 'si', 'que', 'aaa', 'a']);
-
-const UAS = [
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1'
-];
 
 if (!global.playCache) global.playCache = new Map();
 if (!global.playSessions) global.playSessions = {};
+if (!global.downloadCache) global.downloadCache = new Map();
 
-function getUA() {
-    return UAS[Math.floor(Math.random() * UAS.length)];
+const YOUTUBE_ID_REGEX = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
+
+function extractVideoId(url) {
+    return String(url || '').match(YOUTUBE_ID_REGEX)?.[1] || null;
+}
+
+function esURL(input) {
+    return /^https?:\/\//i.test(input) || /youtube\.com\/watch/i.test(input) || /youtu\.be\//i.test(input);
 }
 
 function formatearVistas(vistas) {
@@ -36,129 +35,70 @@ function formatearVistas(vistas) {
     return String(num);
 }
 
-function parsearDuracion(duracionStr) {
-    if (!duracionStr) return 0;
-    const str = String(duracionStr).trim();
-    const partes = str.split(':').map(p => parseInt(p) || 0);
-    if (partes.length === 3) return partes[0] * 3600 + partes[1] * 60 + partes[2];
-    if (partes.length === 2) return partes[0] * 60 + partes[1];
-    return parseInt(str) || 0;
-}
-
-function detectarFormatoAudio(buffer) {
-    if (buffer.length < 100) return null;
-    if (buffer[0] === 0x49 && buffer[1] === 0x44 && buffer[2] === 0x33) return 'audio/mpeg';
-    if (buffer[0] === 0xFF && (buffer[1] & 0xE0) === 0xE0) return 'audio/mpeg';
-    if (buffer.length > 12 && buffer.slice(4, 8).toString('ascii') === 'ftyp') return 'audio/mp4';
-    if (buffer[0] === 0x4F && buffer[1] === 0x67 && buffer[2] === 0x67) return 'audio/ogg';
-    return null;
-}
-
-function esMp4Valido(buffer) {
-    return buffer.length > 12 && buffer.slice(4, 8).toString('ascii') === 'ftyp';
-}
-
-function esURL(input) {
-    return /^https?:\/\//i.test(input) || 
-           /youtube\.com\/watch/i.test(input) || 
-           /youtu\.be\//i.test(input);
-}
-
-function extraerVideoId(url) {
-    const regex = /(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
-    const match = url.match(regex);
-    return match ? match[1] : null;
+function parsearDuracion(segundos) {
+    if (!segundos || isNaN(segundos)) return '0:00';
+    const s = Math.floor(Number(segundos));
+    return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
 }
 
 function limpiarSesionesViejas() {
     const ahora = Date.now();
     for (const k of Object.keys(global.playSessions)) {
-        if (ahora - global.playSessions[k].timestamp > SESION_TTL) {
-            delete global.playSessions[k];
-        }
+        if (ahora - global.playSessions[k].timestamp > SESION_TTL) delete global.playSessions[k];
     }
 }
 
-async function getJSON(url, timeoutMs) {
-    const res = await fetch(url, {
-        agent: AGENTE,
-        headers: {
-            'Accept': 'application/json',
-            'User-Agent': getUA(),
-            'Referer': 'https://www.youtube.com/'
-        },
-        signal: AbortSignal.timeout(timeoutMs)
-    });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    return res.json();
+function validarAudio(buffer) {
+    if (!buffer || buffer.length < 1000) return null;
+    if (buffer[0] === 0x49 && buffer[1] === 0x44 && buffer[2] === 0x33) return 'audio/mpeg';
+    if (buffer[0] === 0xFF && (buffer[1] & 0xE0) === 0xE0) return 'audio/mpeg';
+    if (buffer.length > 12 && buffer.slice(4, 8).toString('ascii') === 'ftyp') return 'audio/mp4';
+    if (buffer[0] === 0x4F && buffer[1] === 0x67 && buffer[2] === 0x67) return 'audio/ogg';
+    if (buffer.slice(0, 4).toString('ascii') === 'RIFF') return 'audio/wav';
+    if (buffer[0] === 0x1A && buffer[1] === 0x45 && buffer[2] === 0xDF && buffer[3] === 0xA3) return 'audio/webm';
+    return null;
 }
 
-function normVideo(v) {
-    return {
-        videoId: v.videoId,
-        url: v.url || `https://www.youtube.com/watch?v=${v.videoId}`,
-        titulo: v.title || v.título || 'Sin título',
-        thumbnail: v.image || v.imagen || v.thumbnail || '',
-        duracion: v.duration || v.duración || '0:00',
-        vistas: v.views || v.vistas || 0,
-        autor: v.author?.name || v.author?.nombre || v.autor?.nombre || 'Desconocido'
-    };
+function validarVideo(buffer) {
+    if (!buffer || buffer.length < 1000) return null;
+    if (buffer.length > 12 && buffer.slice(4, 8).toString('ascii') === 'ftyp') return 'video/mp4';
+    return null;
 }
 
-function normInfo(i) {
-    return {
-        titulo: i.title || i.titulo || i.título || 'Sin título',
-        autor: i.author || i.autor || 'Desconocido',
-        thumbnail: i.image || i.imagen || '',
-        formato: i.format || i.formato || '',
-        downloadUrl: i.download || i.descarga || i.url || i.link
-    };
-}
-
-async function buscarUna(query) {
-    const data = await getJSON(`${API_BUSCAR}?q=${encodeURIComponent(query)}`, 10000);
-    if (data.status !== true && data.estado !== true) throw new Error('API sin éxito');
-    const lista = data.data || data.datos || [];
-    const v = lista.find(x => (x.type || x.tipo) === 'video' && !(x.isLive || x.enVivo)) || lista[0];
-    if (!v) throw new Error('Sin resultados');
-    return normVideo(v);
-}
-
-async function videoDesdeURL(url) {
-    const videoId = extraerVideoId(url);
-    if (!videoId) throw new Error('URL de YouTube inválida');
-
-    const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
-    
-    try {
-        const data = await getJSON(`${API_BUSCAR}?q=${videoId}`, 10000);
-        if ((data.status === true || data.estado === true) && data.data && data.data.length > 0) {
-            const v = data.data.find(x => x.videoId === videoId) || data.data[0];
-            return normVideo(v);
-        }
-    } catch (error) {
-        console.log('[PLAY] No se pudieron obtener metadatos de la URL');
-    }
-
-    return {
-        videoId,
-        url: videoUrl,
-        titulo: 'Video de YouTube',
-        thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
-        duracion: '0:00',
-        vistas: 0,
-        autor: 'Desconocido'
-    };
-}
-
-async function buscarYouTube(query) {
-    const key = query.toLowerCase().trim();
-
+async function buscarVideo(query) {
     if (esURL(query)) {
-        console.log(`[PLAY] 📎 URL directa detectada: ${query}`);
-        return await videoDesdeURL(query);
+        const videoId = extractVideoId(query);
+        if (!videoId) throw new Error('URL de YouTube inválida');
+        try {
+            const info = await yts({ videoId });
+            if (info?.title) {
+                return {
+                    videoId,
+                    url: `https://www.youtube.com/watch?v=${videoId}`,
+                    titulo: info.title,
+                    thumbnail: info.thumbnail || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+                    duracion: parsearDuracion(info.seconds),
+                    duracionSegundos: info.seconds || 0,
+                    vistas: info.views || 0,
+                    autor: info.author?.name || 'Desconocido'
+                };
+            }
+        } catch (e) {
+            console.log('[YT-SEARCH] Error buscando por ID:', e.message);
+        }
+        return {
+            videoId,
+            url: `https://www.youtube.com/watch?v=${videoId}`,
+            titulo: 'Video de YouTube',
+            thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+            duracion: '0:00',
+            duracionSegundos: 0,
+            vistas: 0,
+            autor: 'Desconocido'
+        };
     }
 
+    const key = query.toLowerCase().trim();
     const cached = global.playCache.get(key);
     if (cached && Date.now() - cached.t < CACHE_TTL) {
         console.log(`[PLAY] ⚡ Caché: ${key}`);
@@ -167,96 +107,267 @@ async function buscarYouTube(query) {
 
     let video = null;
     const esGenerica = key.length <= 5 || GENERICAS.has(key);
+    const variantes = esGenerica 
+        ? [key, ...MODIFICADORES.map(m => `${key} ${m}`)].slice(0, 4)
+        : [key];
 
-    if (!esGenerica) {
-        video = await buscarUna(key);
-    } else {
-        const variantes = [key, ...MODIFICADORES.map(m => `${key} ${m}`)].slice(0, 4);
-        console.log(`[PLAY] Genérica → variantes: ${variantes.join(' | ')}`);
+    console.log(`[PLAY] Buscando: ${variantes.join(' | ')}`);
 
-        const resultados = await Promise.allSettled(variantes.map(v => buscarUna(v).then(r => ({ r, v }))));
-
-        for (const v of variantes) {
-            const exito = resultados.find(s => s.status === 'fulfilled' && s.value.v === v);
-            if (exito) {
-                video = exito.value.r;
-                console.log(`[PLAY] ✅ Variante ganadora: "${v}"`);
+    for (const variante of variantes) {
+        try {
+            const results = await yts(variante);
+            const videos = results?.videos || [];
+            if (!videos.length) continue;
+            const v = videos.find(x => x.type === 'video' && !x.isLive) || videos[0];
+            if (v) {
+                video = {
+                    videoId: v.videoId,
+                    url: v.url || `https://www.youtube.com/watch?v=${v.videoId}`,
+                    titulo: v.title || 'Sin título',
+                    thumbnail: v.thumbnail || v.image || '',
+                    duracion: parsearDuracion(v.seconds),
+                    duracionSegundos: v.seconds || 0,
+                    vistas: v.views || 0,
+                    autor: v.author?.name || 'Desconocido'
+                };
+                console.log(`[PLAY] ✅ Encontrado: "${v.title}"`);
                 break;
             }
+        } catch (e) {
+            console.log(`[PLAY] Error buscando "${variante}":`, e.message);
         }
-
-        if (!video) throw new Error('Sin resultados');
     }
 
+    if (!video) throw new Error('Sin resultados de búsqueda');
     if (global.playCache.size > 50) global.playCache.clear();
     global.playCache.set(key, { video, t: Date.now() });
-
     return video;
 }
 
-async function infoAudio(url) {
-    const data = await getJSON(`${API_MP3}?url=${encodeURIComponent(url)}`, 18000);
-    if (data.status !== true && data.estado !== true) throw new Error('API MP3 sin éxito');
-    const info = normInfo(data.data || data.datos || {});
-    if (!info.downloadUrl) throw new Error('Sin link de descarga');
-    return info;
+async function descargarBuffer(url, timeoutMs = 60000) {
+    const res = await fetch(url, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+        signal: AbortSignal.timeout(timeoutMs)
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const buffer = Buffer.from(await res.arrayBuffer());
+    if (!buffer.length) throw new Error('Buffer vacío');
+    return buffer;
 }
 
-async function infoVideo(url) {
-    const data = await getJSON(`${API_MP4}?url=${encodeURIComponent(url)}&format=${FORMATO_VIDEO}`, 18000);
-    if (data.status !== true && data.estado !== true) throw new Error('API MP4 sin éxito');
-    const info = normInfo(data.data || data.datos || {});
-    if (!info.downloadUrl) throw new Error('Sin link de descarga');
-    return info;
+
+async function audioKyzo(query) {
+    try {
+        const { data } = await axios.get(KYZO_API_URL, {
+            params: { query, key: KYZO_API_KEY },
+            timeout: 15000,
+        });
+        if (data?.status && data?.download) {
+            console.log(`[KYZO] ✅ URL obtenida`);
+            return data.download;
+        }
+    } catch (e) {
+        console.log('[KYZO] Error:', e.message);
+    }
+    return null;
 }
 
-async function descargarMedia(url, timeoutMs, tipo) {
-    let ultimoError = null;
+async function audioMobi(videoId) {
+    try {
+        const client = axios.create({
+            timeout: 30000,
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Linux; Android 16; NX729J) AppleWebKit/537.36',
+                'Referer': 'https://id.ytmp3.mobi/',
+            },
+        });
 
-    for (let intento = 1; intento <= 3; intento++) {
+        const { data: init } = await client.get('https://d.ymcdn.org/api/v1/init', {
+            params: { p: 'y', 23: '1llum1n471', _: Math.random() },
+        });
+        if (!init?.convertURL) throw new Error('Init failed');
+
+        const { data: convert } = await client.get(init.convertURL, {
+            params: { v: videoId, f: 'mp3', _: Math.random() },
+        });
+        if (!convert?.progressURL || !convert?.downloadURL) throw new Error('Sin URL');
+
+        let progress = 0, attempts = 0;
+        while (progress < 3 && attempts < 15) {
+            const { data } = await client.get(convert.progressURL);
+            if ((data?.error || 0) > 0) throw new Error(`Error: ${data.error}`);
+            progress = Number(data?.progress || 0);
+            if (progress < 3) { attempts++; await new Promise(r => setTimeout(r, 200)); }
+        }
+        if (attempts >= 15 && progress < 3) throw new Error('Timeout');
+        
+        console.log(`[MOBI-MP3] ✅ URL obtenida`);
+        return convert.downloadURL;
+    } catch (e) {
+        console.log('[MOBI-MP3] Error:', e.message);
+    }
+    return null;
+}
+
+async function videoMobi(videoId) {
+    try {
+        const client = axios.create({
+            timeout: 30000,
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Linux; Android 16; NX729J) AppleWebKit/537.36',
+                'Referer': 'https://id.ytmp3.mobi/',
+            },
+        });
+
+        const { data: init } = await client.get('https://d.ymcdn.org/api/v1/init', {
+            params: { p: 'y', 23: '1llum1n471', _: Math.random() },
+        });
+        if (!init?.convertURL) throw new Error('Init failed');
+
+        const { data: convert } = await client.get(init.convertURL, {
+            params: { v: videoId, f: 'mp4', _: Math.random() },
+        });
+        if (!convert?.progressURL || !convert?.downloadURL) throw new Error('Sin URL');
+
+        let progress = 0, attempts = 0;
+        while (progress < 3 && attempts < 15) {
+            const { data } = await client.get(convert.progressURL);
+            if ((data?.error || 0) > 0) throw new Error(`Error: ${data.error}`);
+            progress = Number(data?.progress || 0);
+            if (progress < 3) { attempts++; await new Promise(r => setTimeout(r, 200)); }
+        }
+        if (attempts >= 15 && progress < 3) throw new Error('Timeout');
+        
+        console.log(`[MOBI-MP4] ✅ URL obtenida`);
+        return convert.downloadURL;
+    } catch (e) {
+        console.log('[MOBI-MP4] Error:', e.message);
+    }
+    return null;
+}
+
+async function videoFaa(query) {
+    try {
+        await new Promise(r => setTimeout(r, 600));
+        const url = `${FAA_API}/ytmp4?q=${encodeURIComponent(query)}`;
+        console.log(`[FAA-VIDEO] Buscando...`);
+        
+        const res = await fetch(url, {
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+            signal: AbortSignal.timeout(20000)
+        });
+        
+        if (!res.ok) return null;
+        const data = await res.json();
+        if (data?.status !== true) return null;
+        
+        const result = data?.result || data?.data || {};
+        const urlVideo = result?.download_url || result?.mp4 || result?.video || result?.url;
+        
+        if (urlVideo && typeof urlVideo === 'string' && urlVideo.startsWith('http')) {
+            console.log(`[FAA-VIDEO] ✅ URL obtenida`);
+            return urlVideo;
+        }
+    } catch (e) {
+        console.log('[FAA-VIDEO] Error:', e.message);
+    }
+    return null;
+}
+
+async function obtenerAudioValido(video) {
+    const cacheKey = `audio_${video.videoId}`;
+    const cached = global.downloadCache.get(cacheKey);
+    if (cached && Date.now() - cached.t < DOWNLOAD_CACHE_TTL) {
+        console.log(`[AUDIO] ⚡ Usando URL en caché`);
         try {
-            const res = await fetch(url, {
-                agent: AGENTE,
-                headers: {
-                    'User-Agent': getUA(),
-                    'Accept': '*/*',
-                    'Referer': 'https://api.delirius.online/',
-                    'Origin': 'https://api.delirius.online'
-                },
-                signal: AbortSignal.timeout(timeoutMs)
-            });
-
-            if (!res.ok) throw new Error('HTTP ' + res.status);
-
-            const contentType = (res.headers.get('content-type') || '').split(';')[0].trim();
-            const buffer = Buffer.from(await res.arrayBuffer());
-
-            if (!buffer.length) throw new Error('Buffer vacío');
-
-            if (tipo === 'audio') {
-                const mime = detectarFormatoAudio(buffer);
-                console.log(`[PLAY-AUDIO] Intento ${intento}: ct=${contentType} bytes=${buffer.length} formato=${mime}`);
-                if (!mime) throw new Error('Audio no reconocido (ct=' + contentType + ')');
-                return { buffer, mimetype: mime };
+            const buffer = await descargarBuffer(cached.url, 60000);
+            const mimetype = validarAudio(buffer);
+            if (mimetype) {
+                console.log(`[AUDIO] ✅ Caché válido (${mimetype})`);
+                return { buffer, mimetype, fuente: 'Caché' };
             }
-
-            if (tipo === 'video') {
-                const ok = esMp4Valido(buffer);
-                console.log(`[PLAY-VIDEO] Intento ${intento}: ct=${contentType} bytes=${buffer.length} mp4=${ok}`);
-                if (!ok) throw new Error('Video no reconocido (ct=' + contentType + ')');
-                return { buffer, mimetype: 'video/mp4' };
-            }
-
-            return { buffer, mimetype: contentType || 'application/octet-stream' };
-
         } catch (e) {
-            ultimoError = e;
-            console.log(`[PLAY-${tipo}] Intento ${intento} falló: ${e.message}`);
-            if (intento < 3) await new Promise(r => setTimeout(r, 1200 * intento));
+            console.log('[AUDIO] Caché falló, buscando de nuevo...');
         }
     }
 
-    throw ultimoError || new Error('Descarga fallida');
+    console.log('[AUDIO] Probando Kyzo y Mobi en paralelo...');
+    
+    const promesas = [
+        audioKyzo(video.titulo).then(url => url ? { nombre: 'Kyzo', url } : null),
+        audioMobi(video.videoId).then(url => url ? { nombre: 'Mobi', url } : null)
+    ];
+
+    const resultados = await Promise.allSettled(promesas);
+    
+    for (const resultado of resultados) {
+        if (resultado.status === 'fulfilled' && resultado.value) {
+            const { nombre, url } = resultado.value;
+            try {
+                console.log(`[AUDIO] Descargando de ${nombre}...`);
+                const buffer = await descargarBuffer(url, 60000);
+                const mimetype = validarAudio(buffer);
+                if (mimetype) {
+                    console.log(`[AUDIO] ✅ ${nombre} dio audio válido (${mimetype})`);
+                    global.downloadCache.set(cacheKey, { url, t: Date.now() });
+                    return { buffer, mimetype, fuente: nombre };
+                }
+                console.log(`[AUDIO] ❌ ${nombre} dio buffer inválido`);
+            } catch (e) {
+                console.log(`[AUDIO] ${nombre} descarga falló: ${e.message}`);
+            }
+        }
+    }
+    
+    return null;
+}
+
+async function obtenerVideoValido(video) {
+    const cacheKey = `video_${video.videoId}`;
+    const cached = global.downloadCache.get(cacheKey);
+    if (cached && Date.now() - cached.t < DOWNLOAD_CACHE_TTL) {
+        console.log(`[VIDEO] ⚡ Usando URL en caché`);
+        try {
+            const buffer = await descargarBuffer(cached.url, 120000);
+            const mimetype = validarVideo(buffer);
+            if (mimetype) {
+                console.log(`[VIDEO] ✅ Caché válido`);
+                return { buffer, mimetype, fuente: 'Caché' };
+            }
+        } catch (e) {
+            console.log('[VIDEO] Caché falló, buscando de nuevo...');
+        }
+    }
+
+    console.log('[VIDEO] Probando Mobi y Faa en paralelo...');
+    
+    const promesas = [
+        videoMobi(video.videoId).then(url => url ? { nombre: 'Mobi', url } : null),
+        videoFaa(video.titulo).then(url => url ? { nombre: 'Faa', url } : null)
+    ];
+
+    const resultados = await Promise.allSettled(promesas);
+    
+    for (const resultado of resultados) {
+        if (resultado.status === 'fulfilled' && resultado.value) {
+            const { nombre, url } = resultado.value;
+            try {
+                console.log(`[VIDEO] Descargando de ${nombre}...`);
+                const buffer = await descargarBuffer(url, 120000);
+                const mimetype = validarVideo(buffer);
+                if (mimetype) {
+                    console.log(`[VIDEO] ✅ ${nombre} dio video válido`);
+                    global.downloadCache.set(cacheKey, { url, t: Date.now() });
+                    return { buffer, mimetype, fuente: nombre };
+                }
+                console.log(`[VIDEO] ❌ ${nombre} dio buffer inválido`);
+            } catch (e) {
+                console.log(`[VIDEO] ${nombre} descarga falló: ${e.message}`);
+            }
+        }
+    }
+    
+    return null;
 }
 
 export async function procesarAudio(sock, msg, video, responder) {
@@ -264,38 +375,35 @@ export async function procesarAudio(sock, msg, video, responder) {
     try {
         await responder.texto('🎵 Descargando audio...');
 
-        const info = await infoAudio(video.url);
-        const { buffer, mimetype } = await descargarMedia(info.downloadUrl, 60000, 'audio');
+        const resultado = await obtenerAudioValido(video);
+        if (!resultado) throw new Error('Ningún proveedor dio audio válido');
 
-        const segundos = parsearDuracion(video.duracion);
-        const extension = mimetype === 'audio/mp4' ? 'm4a' : (mimetype === 'audio/ogg' ? 'ogg' : 'mp3');
+        const { buffer, mimetype, fuente } = resultado;
+        const extension = mimetype === 'audio/mp4' ? 'm4a' : (mimetype === 'audio/ogg' ? 'ogg' : (mimetype === 'audio/webm' ? 'opus' : 'mp3'));
 
         await sock.sendMessage(jid, {
             audio: buffer,
             mimetype: mimetype,
-            fileName: `audio.${extension}`,
+            fileName: `${video.titulo.slice(0, 60).replace(/[^\w\s.-]/g, '')}.${extension}`,
             ptt: false,
-            seconds: segundos,
+            seconds: video.duracionSegundos,
             contextInfo: {
                 externalAdReply: {
-                    title: info.titulo || video.titulo,
-                    body: info.autor || video.autor,
-                    thumbnailUrl: video.thumbnail || info.thumbnail,
+                    title: video.titulo,
+                    body: video.autor,
+                    thumbnailUrl: video.thumbnail,
                     mediaType: 2,
                     mediaUrl: video.url,
                     sourceUrl: video.url
                 }
             }
         }, { quoted: msg });
+        
+        console.log(`[PLAY-AUDIO] ✅ Enviado desde ${fuente}`);
+        
     } catch (error) {
         console.error('[PLAY-AUDIO] Error:', error?.message || error);
-        await responder.texto(
-            '╭━━〔  𝐄𝐑𝐑𝐎𝐑 〕━━⬣\n' +
-            '┃ No se pudo enviar el audio.\n' +
-            '┃\n' +
-            '┃ ⚠️ ' + (error?.message || 'Error desconocido') + '\n' +
-            '╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣'
-        );
+        await responder.texto('╭━━〔 ❌ 𝐄𝐑𝐑𝐎𝐑 〕━━⬣\n┃ No se pudo enviar el audio.\n┃\n┃ ⚠️ ' + (error?.message || 'Error desconocido') + '\n╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣');
     }
 }
 
@@ -304,77 +412,42 @@ export async function procesarVideo(sock, msg, video, responder) {
     try {
         await responder.texto('🎬 Descargando video...');
 
-        const info = await infoVideo(video.url);
-        const { buffer } = await descargarMedia(info.downloadUrl, 120000, 'video');
+        const resultado = await obtenerVideoValido(video);
+        if (!resultado) throw new Error('Ningún proveedor dio video válido');
 
+        const { buffer, fuente } = resultado;
         const tamañoMB = (buffer.length / 1024 / 1024).toFixed(2);
-        const titulo = info.titulo || video.titulo;
-        const autor = info.autor || video.autor;
-
-        const caption =
-            '╭━━〔 🎬 𝐕𝐈𝐄𝐎 〕━━⬣\n' +
-            '┃ 🎧 *' + titulo + '*\n' +
-            '┃ 👤 ' + autor + '\n' +
-            '┃ 📊 ' + (info.formato || FORMATO_VIDEO) + ' | 📦 ' + tamañoMB + ' MB\n' +
-            '╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣';
+        const caption = '╭━━〔 🎬 𝐕𝐈𝐃𝐄𝐎 〕━━⬣\n┃ 🎧 *' + video.titulo + '*\n┃ 👤 ' + video.autor + '\n┃ 📦 ' + tamañoMB + ' MB\n╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣';
 
         if (buffer.length > 16 * 1024 * 1024) {
             await sock.sendMessage(jid, {
                 document: buffer,
                 mimetype: 'video/mp4',
-                fileName: `${String(titulo).replace(/[^\w\s.-]/g, '').slice(0, 80)}.mp4`,
+                fileName: `${video.titulo.slice(0, 60).replace(/[^\w\s.-]/g, '')}.mp4`,
                 caption
             }, { quoted: msg });
         } else {
-            await sock.sendMessage(jid, {
-                video: buffer,
-                mimetype: 'video/mp4',
-                caption
-            }, { quoted: msg });
+            await sock.sendMessage(jid, { video: buffer, mimetype: 'video/mp4', caption }, { quoted: msg });
         }
+        
+        console.log(`[PLAY-VIDEO] ✅ Enviado desde ${fuente}`);
+        
     } catch (error) {
         console.error('[PLAY-VIDEO] Error:', error?.message || error);
-        await responder.texto(
-            '╭━━〔 ❌ 𝐄𝐑𝐎𝐑 〕━━⬣\n' +
-            '┃ No se pudo enviar el video.\n' +
-            '┃\n' +
-            '┃ ⚠️ ' + (error?.message || 'Error desconocido') + '\n' +
-            '╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣'
-        );
+        await responder.texto('╭━━〔 ❌ 𝐄𝐑𝐑𝐎𝐑 〕━━⬣\n┃ No se pudo enviar el video.\n┃\n┃ ⚠️ ' + (error?.message || 'Error desconocido') + '\n╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣');
     }
 }
 
 async function enviarConBotones(sock, msg, video, jid) {
-    const caption = 
-        '╭━━〔 🎵 𝐏𝐋𝐀𝐘 〕━━⬣\n' +
-        '┃\n' +
-        '┃ 🎧 *' + video.titulo + '*\n' +
-        '┃ 👤 ' + video.autor + '\n' +
-        '┃ ⏱️ ' + video.duracion + '\n' +
-        '┃ 👀 ' + formatearVistas(video.vistas) + '\n' +
-        '┃\n' +
-        '┃ 🎯 Elige con botones o\n' +
-        '┃    responde *1* o *2*\n' +
-        '┃\n' +
-        '╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣';
+    const caption = '╭━━〔 🎵 𝐏𝐋𝐀𝐘 〕━━⬣\n┃\n┃ 🎧 *' + video.titulo + '*\n┃ 👤 ' + video.autor + '\n┃ ⏱️ ' + video.duracion + '\n┃ 👀 ' + formatearVistas(video.vistas) + '\n┃\n┃ 🎯 Elige con botones o\n┃    responde *1* o *2*\n┃\n╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣';
 
     limpiarSesionesViejas();
-
     const ahora = Date.now();
-    const claves = new Set();
-    
-    const claveUsuario = msg.key.participant || msg.key.senderPn || msg.key.participantAlt || msg.key.remoteJid;
-    if (claveUsuario) claves.add(claveUsuario);
-    if (msg.key.senderPn) claves.add(msg.key.senderPn);
-    if (msg.key.participantAlt) claves.add(msg.key.participantAlt);
-    if (msg.key.remoteJidAlt) claves.add(msg.key.remoteJidAlt);
-    if (jid) claves.add(jid);
-
-    for (const k of claves) {
-        global.playSessions[k] = { video, timestamp: ahora };
-    }
-
-    console.log(`[PLAY] 🔑 Sesión guardada con claves:`, [...claves].join(' | '));
+    const claves = new Set([
+        msg.key.participant, msg.key.senderPn, msg.key.participantAlt,
+        msg.key.remoteJidAlt, jid
+    ].filter(Boolean));
+    for (const k of claves) global.playSessions[k] = { video, timestamp: ahora };
 
     let imagenMedia = null;
     try {
@@ -384,43 +457,23 @@ async function enviarConBotones(sock, msg, video, jid) {
                 { upload: sock.waUploadToServer }
             );
         }
-    } catch (e) {
-        console.log('[PLAY] No se pudo subir thumbnail:', e.message);
-    }
+    } catch (e) {}
 
     const msgInteractive = {
         viewOnceMessage: {
             message: {
-                messageContextInfo: {
-                    deviceListMetadata: {},
-                    deviceListMetadataVersion: 2
-                },
+                messageContextInfo: { deviceListMetadata: {}, deviceListMetadataVersion: 2 },
                 interactiveMessage: {
                     body: { text: caption },
                     footer: { text: '⚡ BOT-API ⚡' },
                     header: imagenMedia?.imageMessage ? {
                         imageMessage: imagenMedia.imageMessage,
                         hasMediaAttachment: true
-                    } : {
-                        title: '🎵 YouTube Downloader',
-                        hasMediaAttachment: false
-                    },
+                    } : { title: '🎵 YouTube Downloader', hasMediaAttachment: false },
                     nativeFlowMessage: {
                         buttons: [
-                            {
-                                name: 'quick_reply',
-                                buttonParamsJson: JSON.stringify({
-                                    display_text: '🎵 Audio',
-                                    id: 'play_audio'
-                                })
-                            },
-                            {
-                                name: 'quick_reply',
-                                buttonParamsJson: JSON.stringify({
-                                    display_text: '🎬 Video',
-                                    id: 'play_video'
-                                })
-                            }
+                            { name: 'quick_reply', buttonParamsJson: JSON.stringify({ display_text: '🎵 Audio', id: 'play_audio' }) },
+                            { name: 'quick_reply', buttonParamsJson: JSON.stringify({ display_text: '🎬 Video', id: 'play_video' }) }
                         ],
                         messageParamsJson: ''
                     }
@@ -433,7 +486,6 @@ async function enviarConBotones(sock, msg, video, jid) {
         userJid: sock.user?.id || jid,
         quoted: msg
     });
-
     await sock.relayMessage(jid, waMsg.message, { messageId: waMsg.key.id });
 }
 
@@ -447,41 +499,18 @@ export default {
         const query = String(argumento || '').trim();
 
         if (!query) {
-            return await responder.texto(
-                '╭━━〔 🎵 𝐏𝐋𝐀𝐘 〕━━⬣\n' +
-                '┃\n' +
-                '┃ ❌ Escribe el nombre o URL\n' +
-                '┃\n' +
-                '┃ 💡 Ejemplos:\n' +
-                '┃ ➪ .play hola (botones)\n' +
-                '┃ ➪ .play2 hola (video directo)\n' +
-                '┃ ➪ .play https://youtu.be/...\n' +
-                '┃\n' +
-                '╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣'
-            );
+            return await responder.texto('╭━━〔 🎵 𝐏𝐋𝐀𝐘 〕━━⬣\n┃\n┃ ❌ Escribe el nombre o URL\n┃\n┃ 💡 Ejemplos:\n┃ ➪ .play hola (botones)\n┃ ➪ .play2 hola (video directo)\n┃ ➪ .play https://youtu.be/...\n┃\n╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣');
         }
 
         const enviarDirecto = ['play2', 'playvideo', 'video'].includes(nombreComando);
 
         try {
-            const video = await buscarYouTube(query);
-
-            if (enviarDirecto) {
-                await procesarVideo(sock, msg, video, responder);
-            } else {
-                await enviarConBotones(sock, msg, video, jid);
-            }
-
+            const video = await buscarVideo(query);
+            if (enviarDirecto) await procesarVideo(sock, msg, video, responder);
+            else await enviarConBotones(sock, msg, video, jid);
         } catch (error) {
             console.error('[PLAY] Error:', error?.message || error);
-            await responder.texto(
-                '╭━━〔 ❌ 𝐄𝐑𝐑𝐎𝐑 〕━━⬣\n' +
-                '┃ ⚠️ ' + (error?.message || 'Error desconocido') + '\n' +
-                '┃\n' +
-                '┃ 💡 Intenta con otro nombre\n' +
-                '┃    o verifica tu conexión.\n' +
-                '╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣'
-            );
+            await responder.texto('╭━━〔 ❌ 𝐄𝐑𝐑𝐎𝐑 〕━━⬣\n┃ ⚠️ ' + (error?.message || 'Error desconocido') + '\n┃\n┃ 💡 Intenta con otro nombre\n┃    o verifica tu conexión.\n╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣');
         }
     }
 };
