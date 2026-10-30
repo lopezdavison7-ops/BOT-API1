@@ -1,28 +1,40 @@
+
 import fetch from 'node-fetch';
-import yts from 'yt-search';
 import { generateWAMessageFromContent, prepareWAMessageMedia } from 'baileys';
 
-const ALYA = 'https://api.alyacore.xyz';
-const KEY = 'AURA-BOT-JERIELB';
+const BASE = 'https://api.delirius.online';
 const FAA = 'https://api-faa.my.id/faa';
-const ID_REGEX = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
+const ALYA = 'https://api.alyacore.xyz';
+const AKEY = 'AURA-BOT-JERIELB';
 
 if (!global.playCache) global.playCache = new Map();
 if (!global.playSessions) global.playSessions = {};
 
-const ytUrl = id => `https://www.youtube.com/watch?v=${id}`;
+const ID_REGEX = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
 const esURL = q => /^https?:\/\//i.test(q) || /youtu\.?be\//i.test(q);
+const wwwUrl = id => `https://www.youtube.com/watch?v=${id}`;
 const fmtVistas = n => { n = parseInt(String(n).replace(/\D/g,''))||0; return n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?(n/1e3).toFixed(1)+'K':String(n); };
 const fmtDur = s => { s = Math.floor(+s||0); return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`; };
-const aSeg = s => { const p = String(s||'').split(':').map(Number); return p.length===2 ? p[0]*60+p[1] : (p[0]||0); };
+const aSeg = s => { if (typeof s === 'number') return s; const p = String(s||'').split(':').map(Number); return p.length===2 ? p[0]*60+p[1] : (p[0]||0); };
 
-function tipoBuffer(buf, esAudio) {
-    if (!buf || buf.length < 1000) return null;
-    if (esAudio) {
+async function json(url, ms = 25000) {
+    const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }, signal: AbortSignal.timeout(ms) });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return res.json();
+}
+
+function validar(buf, tipo) {
+    if (!buf || buf.length < 5000) return null;
+    const head = buf.slice(0, 64).toString('utf8');
+    if (head.includes('<!') || head.includes('<html') || head.includes('<HTML')) return null;
+    if (tipo === 'audio') {
         if (buf[0]===0x49 && buf[1]===0x44 && buf[2]===0x33) return 'audio/mpeg';
         if (buf[0]===0xFF && (buf[1]&0xE0)===0xE0) return 'audio/mpeg';
         if (buf.slice(4,8).toString()==='ftyp') return 'audio/mp4';
-        if (buf.slice(0,3).toString()==='Ogg') return 'audio/ogg';
+        if (buf.slice(0,4).toString()==='OggS') return 'audio/ogg';
+        if (buf.slice(0,4).toString()==='RIFF') return 'audio/wav';
+        if (buf[0]===0x1A && buf[1]===0x45) return 'audio/webm';
+        if (buf.length > 20000) return 'audio/mpeg';
         return null;
     }
     return buf.slice(4,8).toString()==='ftyp' ? 'video/mp4' : null;
@@ -32,112 +44,174 @@ async function buscar(query) {
     if (esURL(query)) {
         const id = query.match(ID_REGEX)?.[1];
         if (!id) throw new Error('URL inválida');
-        try {
-            const info = await yts({ videoId: id });
-            if (info?.title) return { id, url: ytUrl(id), titulo: info.title, thumb: info.thumbnail || `https://i.ytimg.com/vi/${id}/hqdefault.jpg`, seg: info.seconds||0, vistas: info.views||0, autor: info.author?.name||'Desconocido' };
-        } catch {}
-        return { id, url: ytUrl(id), titulo: 'Video de YouTube', thumb: `https://i.ytimg.com/vi/${id}/hqdefault.jpg`, seg: 0, vistas: 0, autor: 'Desconocido' };
+        const data = await json(`${BASE}/search/ytsearch?q=${encodeURIComponent(query)}`, 20000);
+        const v = (data?.data || []).find(x => x.videoId === id) || data?.data?.[0];
+        if (v) return { id: v.videoId, url: v.url, titulo: v.title, thumb: v.thumbnail || v.image || '', seg: aSeg(v.duration), vistas: v.views||0, autor: v.author?.name || 'Desconocido' };
+        return { id, url: wwwUrl(id), titulo: 'Video de YouTube', thumb: `https://i.ytimg.com/vi/${id}/hqdefault.jpg`, seg: 0, vistas: 0, autor: 'Desconocido' };
     }
     const k = query.toLowerCase().trim();
     const cache = global.playCache.get('s_'+k);
     if (cache && Date.now()-cache.t < 300000) return cache.v;
-    const res = await yts(k);
-    const v = (res.videos||[]).find(x => x.type==='video' && !x.isLive) || res.videos?.[0];
+    const data = await json(`${BASE}/search/ytsearch?q=${encodeURIComponent(k)}`, 20000);
+    const v = (data?.data || []).find(x => x.type === 'video' && !x.isLive) || data?.data?.[0];
     if (!v) throw new Error('Sin resultados');
-    const video = { id: v.videoId, url: ytUrl(v.videoId), titulo: v.title, thumb: v.thumbnail||'', seg: v.seconds||0, vistas: v.views||0, autor: v.author?.name||'Desconocido' };
+    const video = { id: v.videoId, url: v.url, titulo: v.title, thumb: v.thumbnail || v.image || '', seg: aSeg(v.duration), vistas: v.views||0, autor: v.author?.name || 'Desconocido' };
     global.playCache.set('s_'+k, { v: video, t: Date.now() });
     return video;
 }
 
-async function enlace(url, tipo) {
-    const ck = `${tipo}_${url.match(ID_REGEX)?.[1] || url}`;
-    const cache = global.playCache.get(ck);
-    if (cache && Date.now()-cache.t < 600000) {
-        console.log(`[ENLACE] ⚡ Caché: ${ck}`);
-        return cache.v;
-    }
-
-    for (let i = 1; i <= 3; i++) {
-        try {
-            const ep = tipo === 'audio' ? '/dl/ytmp3' : '/dl/ytmp4';
-            const res = await fetch(`${ALYA}${ep}?url=${encodeURIComponent(url)}&key=${KEY}`, { signal: AbortSignal.timeout(20000) });
-            const j = await res.json();
-            let d = j?.data || j?.result || {};
-            if (Array.isArray(d)) d = d[0] || {};
-            const dl = typeof d.dl === 'string' ? d.dl : (d.dl?.url || d.url || d.download || d.link);
-            if (dl) {
-                console.log(`[ALYA] ✅ OK en intento ${i}`);
-                const v = { dl, titulo: d.title||'', autor: d.author||'', thumb: d.thumbnail||'', dur: d.duration||'' };
-                global.playCache.set(ck, { v, t: Date.now() });
-                return v;
-            }
-            console.log(`[ALYA] Intento ${i}: ${j?.message || 'sin dl'}`);
-        } catch (e) {
-            console.log(`[ALYA] Intento ${i} error: ${e.message}`);
-        }
-        if (i < 3) await new Promise(r => setTimeout(r, 1500 * i));
-    }
-
-    try {
-        console.log('[FAA] Alya ocupado, usando respaldo...');
-        const ep = tipo === 'audio' ? '/youtube' : '/ytmp4';
-        const res = await fetch(`${FAA}${ep}?url=${encodeURIComponent(url)}`, { signal: AbortSignal.timeout(20000) });
-        const j = await res.json();
-        const d = j?.result || j?.data || {};
-        const dl = tipo === 'audio' ? (d.mp3 || d.audio || d.url) : (d.download_url || d.mp4 || d.url);
-        if (dl) {
-            console.log('[FAA] ✅ OK');
-            const v = { dl, titulo: d.title||'', autor: d.author || d.channel||'', thumb: d.thumbnail||'', dur: d.duration||'' };
-            global.playCache.set(ck, { v, t: Date.now() });
-            return v;
-        }
-        console.log('[FAA] Sin dl:', JSON.stringify(j).substring(0, 150));
-    } catch (e) {
-        console.log('[FAA] Error:', e.message);
-    }
-
-    throw new Error('Sin enlace de descarga (Alya ocupado y Faa falló)');
-}
-
 async function bajar(url, ms) {
-    const res = await fetch(url, { signal: AbortSignal.timeout(ms) });
+    console.log(`[BAJAR] Iniciando: ${url.substring(0, 80)}...`);
+    const res = await fetch(url, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36', 'Accept': '*/*' },
+        signal: AbortSignal.timeout(ms)
+    });
+    console.log(`[BAJAR] Status: ${res.status} | Content-Type: ${res.headers.get('content-type')}`);
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const buf = Buffer.from(await res.arrayBuffer());
+    console.log(`[BAJAR] ✅ Recibido: ${buf.length} bytes`);
     if (!buf.length) throw new Error('Buffer vacío');
     return buf;
 }
 
-async function enviar(sock, msg, video, tipo, responder) {
+async function enviarAudio(sock, msg, video, responder) {
     const jid = msg.key.remoteJid;
-    await responder.texto(tipo === 'audio' ? '🎵 Descargando audio...' : '🎬 Descargando video...');
-    try {
-        const info = await enlace(video.url, tipo);
-        const buf = await bajar(info.dl, tipo === 'audio' ? 60000 : 120000);
-        const mime = tipoBuffer(buf, tipo === 'audio');
-        if (!mime) throw new Error('Archivo inválido');
-        const titulo = info.titulo || video.titulo;
-        const autor = info.autor || video.autor;
-
-        if (tipo === 'audio') {
-            await sock.sendMessage(jid, {
-                audio: buf, mimetype: mime,
-                fileName: `${titulo.slice(0,60).replace(/[^\w\s.-]/g,'')}.${mime==='audio/mp4'?'m4a':'mp3'}`,
-                ptt: false, seconds: video.seg || aSeg(info.dur),
-                contextInfo: { externalAdReply: { title: titulo, body: autor, thumbnailUrl: info.thumb||video.thumb, mediaType: 2, mediaUrl: video.url, sourceUrl: video.url } }
-            }, { quoted: msg });
-        } else {
-            const cap = `╭━━〔 🎬 𝐕𝐈𝐃𝐄𝐎 〕━━⬣\n┃ 🎧 *${titulo}*\n┃ 👤 ${autor}\n┃ 📦 ${(buf.length/1048576).toFixed(2)} MB\n╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣`;
-            if (buf.length > 16*1048576) await sock.sendMessage(jid, { document: buf, mimetype: 'video/mp4', fileName: `${titulo.slice(0,60).replace(/[^\w\s.-]/g,'')}.mp4`, caption: cap }, { quoted: msg });
-            else await sock.sendMessage(jid, { video: buf, mimetype: 'video/mp4', caption: cap }, { quoted: msg });
+    await responder.texto('🎵 Descargando audio...');
+    
+    const fuentes = [
+        {
+            nombre: 'Delirius',
+            obtener: async () => {
+                const d = await json(`${BASE}/download/ytmp3?url=${encodeURIComponent(video.url)}`);
+                if (!d?.data?.download) throw new Error('sin url');
+                return { url: d.data.download, titulo: d.data.title, autor: d.data.author, thumb: d.data.image };
+            }
+        },
+        {
+            nombre: 'Faa',
+            obtener: async () => {
+                const f = await json(`${FAA}/youtube?url=${encodeURIComponent(wwwUrl(video.id))}`);
+                const r = f?.result || {};
+                if (!r.mp3) throw new Error('sin mp3');
+                return { url: r.mp3, titulo: r.title, autor: r.author || '', thumb: r.thumbnail || '' };
+            }
+        },
+        {
+            nombre: 'Alya',
+            obtener: async () => {
+                const a = await json(`${ALYA}/dl/ytmp3?url=${encodeURIComponent(video.url)}&key=${AKEY}`);
+                const d = a?.data || {};
+                const dl = typeof d.dl === 'string' ? d.dl : (d.dl?.url || d.url);
+                if (!dl) throw new Error('sin dl');
+                return { url: dl, titulo: d.title, autor: d.author || '', thumb: d.thumbnail || '' };
+            }
         }
-    } catch (e) {
-        console.error(`[PLAY-${tipo}]`, e.message);
-        await responder.texto(`╭━━〔 ❌ 𝐄𝐑𝐑𝐎𝐑 〕━━⬣\n┃ ⚠️ ${e.message}\n╰━━〔  𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣`);
+    ];
+    
+    for (const fuente of fuentes) {
+        try {
+            console.log(`[AUDIO] Probando ${fuente.nombre}...`);
+            const info = await fuente.obtener();
+            const buf = await bajar(info.url, 60000);
+            const mime = validar(buf, 'audio');
+            if (!mime) {
+                console.log(`[AUDIO] ❌ ${fuente.nombre} devolvió HTML/basura`);
+                continue;
+            }
+            console.log(`[AUDIO] ✅ ${fuente.nombre} OK (${buf.length} bytes, ${mime})`);
+            const titulo = info.titulo || video.titulo;
+            const autor = info.autor || video.autor;
+            const nombre = `${titulo.slice(0,60).replace(/[^\w\s.-]/g,'')}`;
+            
+            if (buf.length > 16*1048576) {
+                const cap = `╭━━〔 🎵 𝐀𝐔𝐃𝐈𝐎 〕━━⬣\n┃ 🎧 *${titulo}*\n┃ 👤 ${autor}\n┃ 📦 ${(buf.length/1048576).toFixed(2)} MB (Documento)\n╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣`;
+                await sock.sendMessage(jid, { document: buf, mimetype: mime, fileName: `${nombre}.${mime==='audio/mp4'?'m4a':'mp3'}`, caption: cap }, { quoted: msg });
+            } else {
+                await sock.sendMessage(jid, {
+                    audio: buf, mimetype: mime,
+                    fileName: `${nombre}.${mime==='audio/mp4'?'m4a':'mp3'}`,
+                    ptt: false, seconds: video.seg,
+                    contextInfo: { externalAdReply: { title: titulo, body: autor, thumbnailUrl: info.thumb||video.thumb, mediaType: 2, mediaUrl: video.url, sourceUrl: video.url } }
+                }, { quoted: msg });
+            }
+            return;
+        } catch (e) {
+            console.log(`[AUDIO] ❌ ${fuente.nombre} falló: ${e.message}`);
+        }
     }
+    throw new Error('Ningún CDN de audio respondió (bloqueo de IP del hosting)');
 }
 
-export const procesarAudio = (sock, msg, video, responder) => enviar(sock, msg, video, 'audio', responder);
-export const procesarVideo = (sock, msg, video, responder) => enviar(sock, msg, video, 'video', responder);
+async function enviarVideo(sock, msg, video, responder) {
+    const jid = msg.key.remoteJid;
+    await responder.texto('🎬 Descargando video...');
+    
+    const fuentes = [
+        {
+            nombre: 'Delirius',
+            obtener: async () => {
+                const d = await json(`${BASE}/download/ytmp4?url=${encodeURIComponent(video.url)}`);
+                if (!d?.data?.download) throw new Error('sin url');
+                return { url: d.data.download, titulo: d.data.title, autor: d.data.author, thumb: d.data.image };
+            }
+        },
+        {
+            nombre: 'Faa',
+            obtener: async () => {
+                const f = await json(`${FAA}/ytmp4?url=${encodeURIComponent(wwwUrl(video.id))}`);
+                const r = f?.result || {};
+                const dl = r.download_url || r.mp4 || r.url;
+                if (!dl) throw new Error('sin mp4');
+                return { url: dl, titulo: r.title, autor: r.author || '', thumb: r.thumbnail || '' };
+            }
+        }
+    ];
+    
+    for (const fuente of fuentes) {
+        try {
+            console.log(`[VIDEO] Probando ${fuente.nombre}...`);
+            const info = await fuente.obtener();
+            const buf = await bajar(info.url, 120000);
+            const mime = validar(buf, 'video');
+            if (!mime) {
+                console.log(`[VIDEO] ❌ ${fuente.nombre} devolvió HTML/basura`);
+                continue;
+            }
+            console.log(`[VIDEO] ✅ ${fuente.nombre} OK (${buf.length} bytes)`);
+            const titulo = info.titulo || video.titulo;
+            const autor = info.autor || video.autor;
+            const cap = `╭━━〔 🎬 𝐕𝐈𝐃𝐄𝐎 〕━━⬣\n┃ 🎧 *${titulo}*\n┃ 👤 ${autor}\n┃ 📦 ${(buf.length/1048576).toFixed(2)} MB\n╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣`;
+            
+            if (buf.length > 16*1048576) {
+                await sock.sendMessage(jid, { document: buf, mimetype: 'video/mp4', fileName: `${titulo.slice(0,60).replace(/[^\w\s.-]/g,'')}.mp4`, caption: cap }, { quoted: msg });
+            } else {
+                await sock.sendMessage(jid, { video: buf, mimetype: 'video/mp4', caption: cap }, { quoted: msg });
+            }
+            return;
+        } catch (e) {
+            console.log(`[VIDEO] ❌ ${fuente.nombre} falló: ${e.message}`);
+        }
+    }
+    throw new Error('Ningún CDN de video respondió');
+}
+
+export const procesarAudio = async (sock, msg, video, responder) => {
+    try {
+        await enviarAudio(sock, msg, video, responder);
+    } catch (e) {
+        console.error('[PLAY-audio]', e.message);
+        await responder.texto(`╭━━〔 ❌ 𝐄𝐑𝐑𝐎𝐑 〕━━⬣\n┃ ⚠️ ${e.message}\n╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣`);
+    }
+};
+
+export const procesarVideo = async (sock, msg, video, responder) => {
+    try {
+        await enviarVideo(sock, msg, video, responder);
+    } catch (e) {
+        console.error('[PLAY-video]', e.message);
+        await responder.texto(`╭━━〔 ❌ 𝐄𝐑𝐑𝐎𝐑 〕━━⬣\n┃ ⚠️ ${e.message}\n╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣`);
+    }
+};
 
 async function botones(sock, msg, video, jid) {
     const cap = `╭━━〔 🎵 𝐏𝐋𝐀𝐘 〕━━⬣\n┃ 🎧 *${video.titulo}*\n┃ 👤 ${video.autor}\n┃ ⏱️ ${fmtDur(video.seg)} | 👀 ${fmtVistas(video.vistas)}\n┃\n┃ 🎯 Elige con botones o responde *1* o *2*\n╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣`;
@@ -170,11 +244,11 @@ export default {
         if (!q) return responder.texto('╭━━〔 🎵 𝐏𝐋𝐀𝐘 〕━━⬣\n┃ ❌ Escribe nombre o URL\n┃ 💡 .play hola | .play2 hola | .play <link>\n╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣');
         try {
             const video = await buscar(q);
-            if (['play2','playvideo','video'].includes(nombreComando)) await enviar(sock, msg, video, 'video', responder);
+            if (['play2','playvideo','video'].includes(nombreComando)) await procesarVideo(sock, msg, video, responder);
             else await botones(sock, msg, video, jid);
         } catch (e) {
             console.error('[PLAY]', e.message);
-            await responder.texto(`╭━━〔 ❌ 𝐄𝐑𝐑𝐎𝐑 〕━━⬣\n┃ ⚠️ ${e.message}\n╰━━〔  𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣`);
+            await responder.texto(`╭━━〔 ❌ 𝐄𝐑𝐑𝐎𝐑 〕━━⬣\n┃ ⚠️ ${e.message}\n╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣`);
         }
     }
 };
