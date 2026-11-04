@@ -71,6 +71,13 @@ function numeroDe(jid) {
     return String(jid || '').split('@')[0].split(':')[0].replace(/\D/g, '');
 }
 
+// ✅ FUNCIÓN esOwner AGREGADA
+function esOwner(msg) {
+    const sender = msg.key.participant || msg.key.senderPn || msg.key.remoteJid || '';
+    const num = numeroDe(sender);
+    return OWNERS.includes(num);
+}
+
 function normalizar(raw) {
     if (!raw) return null;
     let d = String(raw).replace(/\D/g, '');
