@@ -25,7 +25,7 @@ function extraerNumero(jid) {
 }
 
 export default {
-    nombre: 'reportar',
+    nombre: 'alex',
     categoria: 'Owner',
     alias: ['report', 'reportnum'],
     descripcion: 'Reporta un número usando todos los bots conectados (Solo Owner)',
