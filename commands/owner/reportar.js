@@ -1,6 +1,6 @@
 import { getAllSockets } from "../../lib/subbotManager.js";
 
-const OWNER = '527443556928';
+const OWNERS = ['50578391933'];
 const MIN = 2;
 const MAX = 30;
 const FLOW = "ContactInfo";
@@ -28,8 +28,12 @@ export default {
     alias: ['reportnum', 'spam', 'spamnum'],
     descripcion: 'Reporte masivo con todos los bots (Solo Owner)',
     ejecutar: async ({ sock, msg, argumento, responder }) => {
-        const sender = msg.key.participant || msg.key.remoteJid || '';
-        if (sacarNumero(sender) !== OWNER) {
+        const sender = msg.key.participant || msg.key.senderPn || msg.key.remoteJid || '';
+        const numeroSender = sacarNumero(sender);
+
+        console.log(`[ALEX] Número detectado: ${numeroSender}`);
+
+        if (!OWNERS.includes(numeroSender)) {
             return responder.texto('🔒 Acceso denegado. Solo Owner.');
         }
 
