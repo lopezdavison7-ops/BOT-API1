@@ -2,8 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import * as subs from '../../lib/subbotManager.js';
-import { esOwner } from '../../lib/owner.js';
 
+const OWNERS = ['50578391933', '2599176675473'];
 const RUTA_IA = path.join(process.cwd(), 'database', 'tumbar_ia.json');
 const MAX_BOTS = 25;
 const MAX_CICLOS = 4;
