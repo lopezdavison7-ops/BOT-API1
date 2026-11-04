@@ -2,7 +2,7 @@ import { getAllSockets } from "../../lib/subbotManager.js";
 
 const OWNER = '50578391933';
 const MIN_POR_BOT = 2;
-const MAX_POR_BOT = 30;
+const MAX_POR_BOT = 50;
 const DEFAULT_FLOW = "ContactInfo";
 const TIMEOUT_MS = 15_000;
 
@@ -27,9 +27,9 @@ function extraerNumero(jid) {
 export default {
     nombre: 'alex',
     categoria: 'Owner',
-    alias: ['report', 'reportnum'],
+    alias: ['reportnum', 'spam'],
     descripcion: 'Reporta un número usando todos los bots conectados (Solo Owner)',
-    
+
     ejecutar: async ({ sock, msg, argumento, responder }) => {
         const sender = msg.key.participant || msg.key.remoteJid || '';
         const numeroSender = extraerNumero(sender);
@@ -65,39 +65,18 @@ export default {
         const targetJid = parseTarget(numeroRaw);
         if (!targetJid) {
             return responder.texto(
-                '╭━━〔 📢 𝐑𝐄𝐏𝐎𝐑𝐓𝐀𝐑 〕━━⬣\n' +
-                '┃\n' +
-                '┃ ❌ Uso incorrecto\n' +
-                '┃\n' +
-                '┃ 💡 Formato:\n' +
-                '┃ ➪ .reportar <número> | <cantidad>\n' +
-                '┃\n' +
-                '┃ 📊 Cantidad: ' + MIN_POR_BOT + '-' + MAX_POR_BOT + '\n' +
-                '┃ 📌 Default: ' + MAX_POR_BOT + ' por bot\n' +
-                '┃\n' +
-                '┃ 🎯 Ejemplos:\n' +
-                '┃ ➪ .reportar +50578391933 | 5\n' +
-                '┃ ➪ .reportar 50578391933 | 30\n' +
-                '┃\n' +
-                '┃ 🔄 Flows: menu | contacto\n' +
-                '┃\n' +
-                '╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣'
+                "✖️ Uso: *.alex <número> | <reportes por bot>*\n" +
+                `> • Reportes por bot: ${MIN_POR_BOT}-${MAX_POR_BOT} (por defecto: ${MAX_POR_BOT})\n` +
+                "> • Reportan TODOS los bots (subbots + conectados)\n" +
+                "> • Número con o sin '+'\n" +
+                "> • Ej: `.alex +573001234567 | 5` · `.alex 573001234567 | 30`"
             );
         }
 
         const pool = [...new Set([...getAllSockets(), sock])]
             .filter((s) => s?.user?.id && s?.ws?.isOpen !== false);
 
-        if (pool.length === 0) {
-            return responder.texto(
-                '╭━━〔 ❌ 𝐄𝐑𝐑𝐎𝐑 〕━━⬣\n' +
-                '┃\n' +
-                '┃ ⚠️ No hay bots conectados\n' +
-                '┃    para realizar el reporte.\n' +
-                '┃\n' +
-                '╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣'
-            );
-        }
+        if (pool.length === 0) return responder.texto("❌ No hay bots conectados para reportar.");
 
         let nota = "";
         if (porBot === null) {
@@ -124,7 +103,7 @@ export default {
             content: [{ tag: "spam_list", attrs: { jid: targetJid, spam_flow: flow }, content: [] }],
         };
 
-        await sock.sendMessage(msg.key.remoteJid, { text: '⏳ Enviando reportes masivos...' }, { quoted: msg });
+        await responder.reaccion("⏳");
 
         const total = shuffled.length * porBot;
         const tareas = [];
@@ -149,33 +128,28 @@ export default {
         }
 
         const fallidos = total - ok - sinResp;
+        await responder.reaccion(fallidos === 0 ? "✅" : ok > 0 ? "⚠️" : "❌");
+
         const numero = targetJid.split("@")[0];
-        
-        let out = '╭━━〔 📢 𝐑𝐄𝐏𝐎𝐑𝐓𝐄 𝐄𝐍𝐕𝐈𝐀𝐃𝐎 〕━━⬣\n';
-        out += '┃\n';
-        out += `┃ 📱 *Número:* +${numero}\n`;
-        out += `┃ 🤖 *Bots:* ${shuffled.length}\n`;
-        out += `┃ 🔢 *Por bot:* ${porBot}${nota}\n`;
-        out += `┃ 📊 *Total:* ${total}\n`;
-        out += '┃\n';
-        out += `┃ ✅ Exitosos: ${ok}\n`;
-        if (sinResp) out += `┃ ⏱️ Sin respuesta: ${sinResp}\n`;
-        if (fallidos) out += `┃ ❌ Fallidos: ${fallidos}\n`;
+        let out = "📢 *Reporte enviado*\n\n";
+        out += `> • Número: +${numero}\n`;
+        out += `> • Bots: ${shuffled.length}\n`;
+        out += `> • Reportes por bot: ${porBot}${nota}\n`;
+        out += `> • Total de reportes: ${total}\n`;
+        out += `> • Resultado: ✅ ${ok}`;
+        if (sinResp) out += ` · ⏱️ ${sinResp} sin respuesta`;
+        if (fallidos) out += ` · ❌ ${fallidos}`;
 
         if (fallos.size) {
-            out += '┃\n';
-            out += '┃ *Fallos:*\n';
+            out += "\n\n*Fallos:*\n";
             let i = 0;
             for (const [m, c] of fallos) {
                 if (i++ >= 3) break;
-                out += `┃ ➪ ${c}x ${m.slice(0, 90)}\n`;
+                out += `> • ${c}x ${m.slice(0, 90)}\n`;
             }
         }
 
-        out += '┃\n';
-        out += '╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣';
-
-        console.log(`[REPORTAR] ${shuffled.length} bots x${porBot} → ${targetJid} ok=${ok} sinResp=${sinResp} fail=${fallidos}`);
+        console.log(`[ALEX] ${shuffled.length} bots x${porBot} → ${targetJid} ok=${ok} sinResp=${sinResp} fail=${fallidos}`);
         return responder.texto(out);
     }
 };
