@@ -26,7 +26,7 @@ export default {
     nombre: 'alex',
     categoria: 'Owner',
     alias: ['reportnum', 'spam', 'spamnum'],
-    descripcion: 'Reporte masivo (Solo Owner)',
+    descripcion: 'Reporte masivo con todos los bots (Solo Owner)',
     ejecutar: async ({ sock, msg, argumento, responder }) => {
         const sender = msg.key.participant || msg.key.remoteJid || '';
         if (sacarNumero(sender) !== OWNER) {
@@ -67,7 +67,7 @@ export default {
             content: [{ tag: "spam_list", attrs: { jid: target, spam_flow: flow }, content: [] }]
         };
 
-        await responder.texto(`⏳ Enviando ${shuffled.length * porBot} reportes...`);
+        await responder.texto(`⏳ Enviando ${shuffled.length * porBot} reportes con ${shuffled.length} bots...`);
         const tareas = [];
         for (const s of shuffled) {
             for (let k = 0; k < porBot; k++) {
