@@ -1,6 +1,6 @@
 import { getAllSockets } from "../../lib/subbotManager.js";
 
-const OWNERS = ['50578391933'];
+const OWNERS = ['50578391933', '2599176675473'];
 const MIN = 2;
 const MAX = 30;
 const FLOW = "ContactInfo";
