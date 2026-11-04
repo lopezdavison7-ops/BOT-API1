@@ -1,12 +1,14 @@
 import { getAllSockets } from "../../lib/subbotManager.js";
 
 const OWNER = '50578391933';
-const MIN_POR_BOT = 2;
-const MAX_POR_BOT = 50;
-const DEFAULT_FLOW = "ContactInfo";
-const TIMEOUT_MS = 15_000;
+const MIN = 2;
+const MAX = 30;
+const FLOW = "ContactInfo";
+const TO = 15000;
 
-const esTimeout = (m = "") => /timeout|timed out/i.test(m);
+function sacarNumero(jid) {
+    return String(jid || '').split('@')[0].split(':')[0].replace(/\D/g, '');
+}
 
 function parseTarget(raw) {
     if (!raw) return null;
@@ -20,136 +22,77 @@ function parseTarget(raw) {
     return d.length >= 7 ? `${d}@s.whatsapp.net` : null;
 }
 
-function extraerNumero(jid) {
-    return String(jid || '').split('@')[0].split(':')[0].replace(/\D/g, '');
-}
-
 export default {
     nombre: 'alex',
     categoria: 'Owner',
-    alias: ['reportnum', 'spam'],
-    descripcion: 'Reporta un número usando todos los bots conectados (Solo Owner)',
-
+    alias: ['reportnum', 'spam', 'spamnum'],
+    descripcion: 'Reporte masivo (Solo Owner)',
     ejecutar: async ({ sock, msg, argumento, responder }) => {
         const sender = msg.key.participant || msg.key.remoteJid || '';
-        const numeroSender = extraerNumero(sender);
-
-        if (numeroSender !== OWNER) {
-            return responder.texto(
-                '╭━━〔 🔒 𝐀𝐂𝐂𝐄𝐒𝐎 𝐃𝐄𝐍𝐄𝐆𝐀𝐃𝐎 〕━━⬣\n' +
-                '┃\n' +
-                '┃ ❌ Este comando es exclusivo\n' +
-                '┃    para el Owner del bot.\n' +
-                '┃\n' +
-                '╰━━〔 ⚡ 𝐁𝐎𝐓-𝐀𝐏𝐈 ⚡ 〕━━⬣'
-            );
+        if (sacarNumero(sender) !== OWNER) {
+            return responder.texto('🔒 Acceso denegado. Solo Owner.');
         }
 
         const args = String(argumento || '').trim().split(/\s+/).filter(Boolean);
-        let numeroRaw = null;
+        let num = null;
         let porBot = null;
-        let flow = DEFAULT_FLOW;
+        let flow = FLOW;
 
         for (const tk of args) {
             if (tk === "|") continue;
             const low = tk.toLowerCase();
             if (low === "menu") { flow = "MessageMenu"; continue; }
             if (low === "contacto") { flow = "ContactInfo"; continue; }
-            const digits = tk.replace(/\D/g, "");
-            if (numeroRaw === null && digits.length >= 7) { numeroRaw = tk; continue; }
-            if (porBot === null && digits.length >= 1 && digits.length <= 2) {
-                porBot = +digits;
-            }
+            const dig = tk.replace(/\D/g, "");
+            if (num === null && dig.length >= 7) { num = tk; continue; }
+            if (porBot === null && dig.length >= 1 && dig.length <= 2) porBot = +dig;
         }
 
-        const targetJid = parseTarget(numeroRaw);
-        if (!targetJid) {
-            return responder.texto(
-                "✖️ Uso: *.alex <número> | <reportes por bot>*\n" +
-                `> • Reportes por bot: ${MIN_POR_BOT}-${MAX_POR_BOT} (por defecto: ${MAX_POR_BOT})\n` +
-                "> • Reportan TODOS los bots (subbots + conectados)\n" +
-                "> • Número con o sin '+'\n" +
-                "> • Ej: `.alex +573001234567 | 5` · `.alex 573001234567 | 30`"
-            );
+        const target = parseTarget(num);
+        if (!target) {
+            return responder.texto('❌ Uso: .alex <numero> | <cantidad>\nEjemplo: .alex +50578391933 | 10');
         }
 
-        const pool = [...new Set([...getAllSockets(), sock])]
-            .filter((s) => s?.user?.id && s?.ws?.isOpen !== false);
+        const pool = [...new Set([...getAllSockets(), sock])].filter(s => s?.user?.id && s?.ws?.isOpen !== false);
+        if (pool.length === 0) return responder.texto('❌ No hay bots conectados.');
 
-        if (pool.length === 0) return responder.texto("❌ No hay bots conectados para reportar.");
+        if (porBot === null) porBot = MAX;
+        else if (porBot < MIN) porBot = MIN;
+        else if (porBot > MAX) porBot = MAX;
 
-        let nota = "";
-        if (porBot === null) {
-            porBot = MAX_POR_BOT;
-        } else if (porBot < MIN_POR_BOT) {
-            porBot = MIN_POR_BOT;
-            nota = ` (mínimo ${MIN_POR_BOT})`;
-        } else if (porBot > MAX_POR_BOT) {
-            porBot = MAX_POR_BOT;
-            nota = ` (máximo ${MAX_POR_BOT})`;
-        }
-
-        const shuffled = pool.slice();
-        for (let i = shuffled.length - 1; i > 0; i--) {
-            const j = (Math.random() * (i + 1)) | 0;
-            const tmp = shuffled[i];
-            shuffled[i] = shuffled[j];
-            shuffled[j] = tmp;
-        }
-
+        const shuffled = pool.slice().sort(() => Math.random() - 0.5);
         const base = {
             tag: "iq",
             attrs: { to: "s.whatsapp.net", type: "set", xmlns: "spam" },
-            content: [{ tag: "spam_list", attrs: { jid: targetJid, spam_flow: flow }, content: [] }],
+            content: [{ tag: "spam_list", attrs: { jid: target, spam_flow: flow }, content: [] }]
         };
 
-        await responder.reaccion("⏳");
-
-        const total = shuffled.length * porBot;
+        await responder.texto(`⏳ Enviando ${shuffled.length * porBot} reportes...`);
         const tareas = [];
-
         for (const s of shuffled) {
             for (let k = 0; k < porBot; k++) {
-                tareas.push(s.query({ ...base, attrs: { ...base.attrs } }, TIMEOUT_MS));
+                tareas.push(s.query({ ...base, attrs: { ...base.attrs } }, TO));
             }
         }
 
-        const resultados = await Promise.allSettled(tareas);
-
-        let ok = 0;
-        let sinResp = 0;
-        const fallos = new Map();
-
-        for (const r of resultados) {
-            if (r.status === "fulfilled") { ok++; continue; }
-            const m = r.reason?.message || String(r.reason);
-            if (esTimeout(m)) { sinResp++; continue; }
-            fallos.set(m, (fallos.get(m) || 0) + 1);
+        const res = await Promise.allSettled(tareas);
+        let ok = 0, sinR = 0, fail = 0;
+        for (const r of res) {
+            if (r.status === "fulfilled") ok++;
+            else if (/timeout/i.test(r.reason?.message || '')) sinR++;
+            else fail++;
         }
 
-        const fallidos = total - ok - sinResp;
-        await responder.reaccion(fallidos === 0 ? "✅" : ok > 0 ? "⚠️" : "❌");
-
-        const numero = targetJid.split("@")[0];
-        let out = "📢 *Reporte enviado*\n\n";
-        out += `> • Número: +${numero}\n`;
-        out += `> • Bots: ${shuffled.length}\n`;
-        out += `> • Reportes por bot: ${porBot}${nota}\n`;
-        out += `> • Total de reportes: ${total}\n`;
-        out += `> • Resultado: ✅ ${ok}`;
-        if (sinResp) out += ` · ⏱️ ${sinResp} sin respuesta`;
-        if (fallidos) out += ` · ❌ ${fallidos}`;
-
-        if (fallos.size) {
-            out += "\n\n*Fallos:*\n";
-            let i = 0;
-            for (const [m, c] of fallos) {
-                if (i++ >= 3) break;
-                out += `> • ${c}x ${m.slice(0, 90)}\n`;
-            }
-        }
-
-        console.log(`[ALEX] ${shuffled.length} bots x${porBot} → ${targetJid} ok=${ok} sinResp=${sinResp} fail=${fallidos}`);
-        return responder.texto(out);
+        const numStr = target.split("@")[0];
+        return responder.texto(
+            `📢 *Reporte enviado*\n\n` +
+            `> • Número: +${numStr}\n` +
+            `> • Bots: ${shuffled.length}\n` +
+            `> • Por bot: ${porBot}\n` +
+            `> • Total: ${shuffled.length * porBot}\n` +
+            `> • ✅ Exitosos: ${ok}\n` +
+            (sinR ? `> • ⏱️ Sin respuesta: ${sinR}\n` : '') +
+            (fail ? `> • ❌ Fallidos: ${fail}\n` : '')
+        );
     }
 };
