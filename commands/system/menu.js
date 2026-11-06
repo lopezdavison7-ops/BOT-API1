@@ -16,18 +16,59 @@ function formatUptime(s){
   const d=Math.floor(s/86400), h=Math.floor((s%86400)/3600), m=Math.floor((s%3600)/60), s2=Math.floor(s%60);
   return d>0 ? `${d}d ${h}h ${m}m` : `${h}h ${m}m ${s2}s`;
 }
-function normalizarLista(lista){
-  if(!lista) return [];
-  let arr = Array.isArray(lista) ? lista : Object.values(lista);
-  return arr.map(cmd=>{
-    if(typeof cmd==='string') return {nombre:cmd,categoria:'Otros',descripcion:''};
-    if(!cmd||typeof cmd!=='object') return null;
-    return { nombre: cmd.nombre||cmd.name||cmd.command||cmd.comando||'', categoria: cmd.categoria||cmd.category||cmd.type||'Otros', descripcion: cmd.descripcion||cmd.description||cmd.desc||'Sin descripción', alias: cmd.alias||cmd.aliases||[] };
-  }).filter(c=>c&&c.nombre);
+
+// ===== ARREGLADO PARA commands/CATEGORIA/archivo.js =====
+function escanearComandos(){
+  if(global.commands && Object.keys(global.commands).length > 0) return Object.values(global.commands);
+  if(global.comandos && Object.keys(global.comandos).length > 0) return Object.values(global.comandos);
+
+  const rutaBase = path.join(process.cwd(), 'commands');
+  let encontrados = [];
+  if(!fs.existsSync(rutaBase)) return encontrados;
+
+  const buscar = (dir, categoriaCarpeta) => {
+    for(const f of fs.readdirSync(dir)){
+      const full = path.join(dir, f);
+      if(fs.statSync(full).isDirectory()){
+        // La carpeta es la categoría: NSFW, Grupos, etc
+        buscar(full, f);
+        continue;
+      }
+      if(!f.endsWith('.js')) continue;
+      try{
+        const txt = fs.readFileSync(full,'utf8');
+        // 1. Nombre: busca en el archivo, si no, usa el nombre del archivo
+        // Ej: xvideos.js -> xvideos
+        let nombre = (txt.match(/(?:nombre|name|command|comando)\s*:\s*['"]([^'"]+)['"]/)||[])[1];
+        if(!nombre) nombre = f.replace('.js','').toLowerCase();
+
+        // 2. Categoría: primero del archivo, si no, de la carpeta
+        // Ej: commands/NSFW/xvideos.js -> NSFW
+        let categoria = (txt.match(/(?:categoria|category)\s*:\s*['"]([^'"]+)['"]/)||[])[1] || categoriaCarpeta || 'Otros';
+
+        // 3. Descripción
+        let descripcion = (txt.match(/(?:descripcion|description|desc)\s*:\s*['"]([^'"]+)['"]/)||[])[1] || 'Sin descripción';
+        // Si la descripción está con backticks `...`
+        if(descripcion==='Sin descripción'){
+          const m2 = txt.match(/(?:descripcion|description|desc)\s*:\s*`([^`]+)`/);
+          if(m2) descripcion = m2[1];
+        }
+
+        const aliasMatch = txt.match(/(?:alias|aliases)\s*:\s*\[([^\]]+)\]/);
+        const alias = aliasMatch ? aliasMatch[1].split(',').map(s=>s.replace(/['"\s`]/g,'')).filter(Boolean) : [];
+
+        encontrados.push({ nombre, categoria, descripcion, alias });
+      }catch{}
+    }
+  };
+  buscar(rutaBase, null);
+  return encontrados;
 }
+
 function organizar(lista){
   const cats={};
-  for(const cmd of normalizarLista(lista)){
+  for(const cmd of lista){
+    if(!cmd?.nombre) continue;
     const cat=String(cmd.categoria||'Otros').trim().replace(/^\w/,c=>c.toUpperCase());
     if(!cats[cat]) cats[cat]=[];
     cats[cat].push(cmd);
@@ -40,8 +81,6 @@ function generar(categorias, prefijo, mencion, botName){
   const totalCats=Object.keys(categorias).length;
   const now=moment.tz(ZONA);
   let t='';
-
-  // ============ ENCABEZADO NUEVO - BLACK ROSE 🥀 ============
   t+=`🥀  ───────────────  🥀\n`;
   t+=`       *𝐁𝐎𝐓-𝐀𝐏𝐈 𝟐.𝟎*\n`;
   t+=`    𝑩𝒍𝒂𝒄𝒌 𝑹𝒐𝒔𝒆 𝑬𝒅𝒊𝒕𝒊𝒐𝒏\n`;
@@ -49,7 +88,6 @@ function generar(categorias, prefijo, mencion, botName){
   t+=`👋 ¡Hola ${mencion}! ✨\n`;
   t+=`🥀 _Donde florece el poder._\n\n`;
   t+=`🤖━━━━ *𝐁𝐎𝐓-𝐀𝐏𝐈 𝟐.𝟎*\n\n`;
-
   t+=`╭─────〔🥀 𝐈 𝐍 𝐅 𝐎 〕──────\n`;
   t+=`┃◈ 👨‍💻 𝐂𝐫𝐞𝐚𝐝𝐨𝐫    ▸ 𝐋𝐮𝐢𝐬 𝐆𝐨𝐧𝐳𝐚́𝐥𝐞𝐳\n`;
   t+=`┃◈ 📦 𝐕𝐞𝐫𝐬𝐢𝐨́𝐧    ▸ ${VERSION}\n`;
@@ -62,16 +100,14 @@ function generar(categorias, prefijo, mencion, botName){
   t+=`┃◈ 📅 𝐅𝐞𝐜𝐡𝐚      ▸ ${now.format('DD/MM/YYYY')}\n`;
   t+=`┃◈ 🕐 𝐇𝐨𝐫𝐚       ▸ ${now.format('HH:mm:ss')}\n`;
   t+=`╰─────────────────────╯\n`;
-
   const keys=Object.keys(categorias).sort((a,b)=>{
     const ia=ORDEN.indexOf(a), ib=ORDEN.indexOf(b);
     if(ia===-1&&ib===-1) return a.localeCompare(b);
     if(ia===-1) return 1; if(ib===-1) return -1;
     return ia-ib;
   });
-
   for(const cat of keys){
-    t+=`\n╭━━━━━【 ${ICONOS[cat]||'📦'} *𝐊𝐍𝐎𝐖*】━━━━━╮\n\n`;
+    t+=`\n╭━━━━━━━━━━╮\n\n`;
     for(const cmd of categorias[cat]){
       const alias = cmd.alias?.length ? ` (${cmd.alias.join(', ')})` : '';
       const desc = String(cmd.descripcion||'Sin descripción').slice(0,60);
@@ -80,13 +116,11 @@ function generar(categorias, prefijo, mencion, botName){
     }
     t+=`╰━━━━━━━━━━━━━━━━━━━━━╯\n`;
   }
-
   t+=`\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
   t+=`📢 *CANAL OFICIAL*\n${CANAL_URL}\n`;
   t+=`━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
   t+=`\n💡 Usa *${prefijo}menu <comando>* para más info.\n`;
   t+=`🥀 _${botName} • Black Rose_`;
-
   return t;
 }
 
@@ -96,13 +130,15 @@ export default {
     try{
       const jid=msg?.key?.remoteJid;
       if(!jid) return;
-      const sender=msg.key.participant||msg.key.remoteJid;
-      const num=String(sender).split('@')[0].split(':')[0].replace(/\D/g,'');
+      const sender = msg.key.participant || msg.key.remoteJid;
+      const numLimpio = String(sender).split('@')[0].split(':')[0].replace(/\D/g,'');
+      const mencion = `@${numLimpio}`;
       const botName=global.botname||'BOT-API 2.0';
-      let lista=listaComandos;
-      if(!lista||(Array.isArray(lista)&&lista.length===0)) lista=global.comandos||global.commands||global.listaComandos||[];
+      let lista = listaComandos;
+      if(!lista || (Array.isArray(lista) && lista.length===0)) lista = escanearComandos();
+      console.log('[MENU] Comandos encontrados:', lista.length);
       const categorias=organizar(lista);
-      const texto=generar(categorias, prefijo||'.', `@${num}`, botName);
+      const texto=generar(categorias, prefijo||'.', mencion, botName);
       if(fs.existsSync(FOTO_MENU)){
         await sock.sendMessage(jid,{image:{url:FOTO_MENU},caption:texto,mentions:[sender]},{quoted:msg});
       }else{
